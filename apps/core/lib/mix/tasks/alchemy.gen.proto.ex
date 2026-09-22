@@ -1,7 +1,9 @@
 defmodule Mix.Tasks.Alchemy.Gen.Proto do
-  @shortdoc "PROTOCOL_PIN / PROTO_ROOT の .proto から Elixir / Rust の生成コードを作る"
+  @shortdoc "PROTOCOL_PIN / PROTO_ROOT の .proto から Elixir 生成コードを作る"
   @moduledoc """
-  `protoc` / `prost-build` による生成処理を **この Mix タスクに集約**する。
+  `protoc` による **Elixir** 生成を **この Mix タスクに集約**する。
+
+  Rust クライアント（prost）は [alchemy-client](https://github.com/FRICK-ELDY/alchemy-client) 側。
 
   ## `.proto` の場所（優先順）
 
@@ -24,7 +26,6 @@ defmodule Mix.Tasks.Alchemy.Gen.Proto do
     root = File.cwd!()
     proto_dir = resolve_proto_dir!(root)
     elixir_out = Path.join(root, "apps/network/lib/network/proto/generated")
-    rust_manifest = Path.join(root, "rust/Cargo.toml")
     protoc = System.get_env("PROTOC") || "protoc"
     proto_files = discover_proto_files!(proto_dir)
 
@@ -32,8 +33,9 @@ defmodule Mix.Tasks.Alchemy.Gen.Proto do
       Path.join([root, ".tmp", "alchemy-gen-proto-#{System.unique_integer([:positive])}"])
 
     Mix.shell().info("")
-    Mix.shell().info("[alchemy.gen.proto] Protobuf 生成を開始します。")
+    Mix.shell().info("[alchemy.gen.proto] Protobuf 生成を開始します（Elixir のみ）。")
     Mix.shell().info("[alchemy.gen.proto] PROTO_ROOT=#{proto_dir}")
+    Mix.shell().info("[alchemy.gen.proto] Rust クライアント生成は alchemy-client 側で行ってください。")
     File.mkdir_p!(elixir_out)
     File.rm_rf!(temp_out)
     File.mkdir_p!(temp_out)
@@ -48,24 +50,6 @@ defmodule Mix.Tasks.Alchemy.Gen.Proto do
       )
 
       replace_generated_files!(temp_out, elixir_out)
-
-      # prost-build は `network` / `render_frame_proto` の build.rs で走る。
-      run_step_or_raise!(
-        "cargo build -p network",
-        "cargo",
-        [
-          "build",
-          "--manifest-path",
-          rust_manifest,
-          "-p",
-          "network"
-        ],
-        root,
-        env: [
-          {"PROTO_ROOT", Path.expand(proto_dir, root)},
-          {"PROTOC", protoc}
-        ]
-      )
     after
       File.rm_rf!(temp_out)
     end

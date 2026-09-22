@@ -10,7 +10,8 @@ defmodule Mix.Tasks.Alchemy.Router do
   （デュアルスタックで IPv4 もカバー）。TCP に加えて UDP も待つ。
   リモート Client は UDP でホストの IPv4 に接続する（TCP だとテザリングで遅延が蓄積しうる）:
 
-      mix alchemy.client --connect udp/<HOST_IP>:7447 --room main
+      cargo run -p app -- --connect udp/<HOST_IP>:7447 --room main
+      # （alchemy-client リポ、または親の client/）
 
   ## 使用例
 
@@ -26,7 +27,7 @@ defmodule Mix.Tasks.Alchemy.Router do
     Mix.shell().info("")
     Mix.shell().info("Starting Zenoh Router (zenohd)...")
     Mix.shell().info("listen: #{format_listen(args)}")
-    Mix.shell().info("Remote client: mix alchemy.client --connect udp/<HOST_IP>:7447")
+    Mix.shell().info("Remote client: cargo run -p app -- --connect udp/<HOST_IP>:7447")
     Mix.shell().info("Press Ctrl+C to stop")
     Mix.shell().info("")
 

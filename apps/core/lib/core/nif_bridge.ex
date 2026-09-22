@@ -4,7 +4,7 @@ defmodule Core.NifBridge do
 
   ゲーム ECS・物理用 NIF はフェーズ 4 で Rust 側から削除済み。
 
-  **XR / VR 入力**は NIF を経由しない。クライアント側 `rust/client/xr`・`network` 経由で
+  **XR / VR 入力**は NIF を経由しない。クライアント（alchemy-client の `xr`・`network`）経由で
   Zenoh 等に乗り、サーバでは `Contents.Events.Game` へメッセージとして届く。
   """
 
