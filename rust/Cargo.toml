@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "nif",
+    "proto_resolve",
     "client/shared",
     "client/render_frame_proto",
     "client/network",

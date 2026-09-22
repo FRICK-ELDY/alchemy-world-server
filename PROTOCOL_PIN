@@ -1,0 +1,6 @@
+# alchemy-protocol pin (Stage B / R2)
+# Daily Rust builds fetch this tag into .proto-cache/ when PROTO_ROOT is unset.
+# Elixir codegen (`mix alchemy.gen.proto`) uses the same rules.
+tag=v0.1.2
+sha=84278a8a6f51fe559263b36a1d5dae9c9a731504
+url=https://github.com/FRICK-ELDY/alchemy-protocol.git

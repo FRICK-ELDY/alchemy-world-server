@@ -10,6 +10,9 @@ erl_crash.dump
 # Rust / Cargo
 rust/target/
 
+# Protocol fetch cache (R2: git clone of alchemy-protocol)
+.proto-cache/
+
 # セーブデータ
 saves/
 

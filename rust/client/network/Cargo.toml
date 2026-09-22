@@ -18,3 +18,4 @@ prost = "0.14"
 
 [build-dependencies]
 prost-build = "0.14"
+proto_resolve = { path = "../../proto_resolve" }

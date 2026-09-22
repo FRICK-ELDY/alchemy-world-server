@@ -1,24 +1,5 @@
-use std::path::{Path, PathBuf};
-
-fn proto_root_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let p = match std::env::var("PROTO_ROOT") {
-        Ok(root) => PathBuf::from(root),
-        Err(_) => {
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../3rdparty/alchemy-protocol/proto")
-        }
-    };
-    if !p.is_dir() {
-        return Err(format!(
-            "PROTO_ROOT proto directory missing: {} (init submodule: git submodule update --init --recursive)",
-            p.display()
-        )
-        .into());
-    }
-    Ok(p)
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let proto_root = proto_root_dir()?;
+    let proto_root = proto_resolve::resolve_proto_root()?;
     let fragments = [
         "render_frame.proto",
         "render_frame/cursor_grab.proto",

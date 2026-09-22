@@ -22,17 +22,13 @@
 
 ## セットアップ
 
-1. リポジトリをクローンします（**Protobuf スキーマ**は [alchemy-protocol](https://github.com/FRICK-ELDY/alchemy-protocol) の Git submodule のため、サブモジュールごと取得してください）。
+1. リポジトリをクローンします（単体でも、親 [alchemy-engine](https://github.com/FRICK-ELDY/alchemy-engine) の `world-server/` submodule でも可）。
    ```bash
-   git clone --recurse-submodules git@github.com:FRICK-ELDY/alchemy-engine.git
-   cd alchemy-engine
-   ```
-   すでに通常の `git clone` 済みの場合は、ルートで次を実行して **`3rdparty/alchemy-protocol`** を取得します。
-   ```bash
-   git submodule update --init --recursive
+   git clone git@github.com:FRICK-ELDY/alchemy-world-server.git
+   cd alchemy-world-server
    ```
 
-2. 開発環境のセットアップを実行します。
+2. 開発環境のセットアップを実行します（Rust の prost 生成は **`PROTOCOL_PIN` に従い初回 git fetch**。Elixir の `*.pb.ex` はリポにコミット済み）。
    ```bash
    mix deps.get
    mix alchemy.setup
@@ -172,10 +168,12 @@ CI の詳細は [.workspace/0_docs/warranty/ci.md](.workspace/0_docs/warranty/ci
 
 ## Protobuf（`.proto`）
 
-**Protobuf を使うペイロード**（サーバーとクライアント等が共有する **その形式の** フィールド契約）の単一ソースは Git submodule **`3rdparty/alchemy-protocol/proto/*.proto`**（上流: [FRICK-ELDY/alchemy-protocol](https://github.com/FRICK-ELDY/alchemy-protocol)）。clone 後は **`git submodule update --init --recursive`** が必要です。別ディレクトリを指す場合は環境変数 **`PROTO_ROOT`** を設定してください（`mix alchemy.gen.proto` および `rust/client/*/build.rs` が参照）。**チームで固定しているタグ・コミット**は [.workspace/0_docs/protocol-lock.md](.workspace/0_docs/protocol-lock.md) を参照してください。UDP 外枠や Phoenix の JSON など **別形式のワイヤ契約**は submodule の外にあり、[.workspace/0_docs/architecture/overview.md](.workspace/0_docs/architecture/overview.md#設計思想) の表を参照。ゲーム状態やルールの「公式な中身」の SSoT は引き続き **Elixir**。生成物の更新は **`mix alchemy.gen.proto`** を公式エントリとする（実装は段階的に同タスクへ集約）。ツール導入、`build.rs`、CI、生成物の置き方の詳細は、作業用ツリー `.workspace/2_todo/protobuf-full-automation-procedure.md` に書く。
+**ワイヤ契約の SSoT** は [FRICK-ELDY/alchemy-protocol](https://github.com/FRICK-ELDY/alchemy-protocol)。本リポでは **`PROTOCOL_PIN`** でタグ／SHA を固定し、日常ビルド時は必要に応じて **`.proto-cache/` へ git fetch（R2）**します。Elixir の `apps/network/.../generated/*.pb.ex` はリポにコミット済みです。
 
-- 公開向けの短い概要: [.workspace/0_docs/architecture/protobuf-migration.md](.workspace/0_docs/architecture/protobuf-migration.md)
-- ワイヤ形式とレガシー ETF: [.workspace/0_docs/architecture/erlang-term-schema.md](.workspace/0_docs/architecture/erlang-term-schema.md)
+- 上書き: 環境変数 **`PROTO_ROOT`**（親スーパープロジェクトなら例: `../protocol/proto` を**明示**）
+- 再生成: **`mix alchemy.gen.proto`**（Elixir 生成物＋ Rust `cargo build -p network`）
+- 旧 **`3rdparty/alchemy-protocol` は廃止**
+- UDP／Phoenix JSON など別形式は overview の表を参照
 
 ## クライアントビルド
 
