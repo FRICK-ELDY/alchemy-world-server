@@ -167,10 +167,18 @@ defmodule Mix.Tasks.Alchemy.Gen.Proto do
       end)
 
     %{
-      tag: Map.fetch!(kv, "tag"),
-      sha: Map.fetch!(kv, "sha"),
-      url: Map.fetch!(kv, "url")
+      tag: require_nonempty!(kv, "tag"),
+      sha: require_nonempty!(kv, "sha"),
+      url: require_nonempty!(kv, "url")
     }
+  end
+
+  defp require_nonempty!(kv, key) do
+    case Map.get(kv, key) do
+      nil -> Mix.raise("PROTOCOL_PIN missing #{key}=")
+      "" -> Mix.raise("PROTOCOL_PIN #{key}= must not be empty")
+      value -> value
+    end
   end
 
   defp git_head_matches?(repo, pin_sha) do
@@ -178,7 +186,12 @@ defmodule Mix.Tasks.Alchemy.Gen.Proto do
       {out, 0} ->
         head = out |> String.trim() |> String.downcase()
         pin = pin_sha |> String.trim() |> String.downcase()
-        head == pin or String.starts_with?(head, pin) or String.starts_with?(pin, head)
+
+        if pin == "" do
+          false
+        else
+          head == pin or String.starts_with?(head, pin) or String.starts_with?(pin, head)
+        end
 
       _ ->
         false

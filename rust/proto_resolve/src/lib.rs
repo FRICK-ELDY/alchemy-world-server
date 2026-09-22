@@ -95,7 +95,11 @@ fn ensure_cache_with_lock(
         }
     }
 
-    Err("timed out waiting for proto cache lock".into())
+    Err(format!(
+        "timed out waiting for proto cache lock. If no other build is running, delete {}",
+        lock_path.display()
+    )
+    .into())
 }
 
 fn cache_ready(
@@ -157,10 +161,17 @@ fn read_pin(path: &Path) -> Result<ProtocolPin, Box<dyn std::error::Error>> {
         }
     }
     Ok(ProtocolPin {
-        tag: tag.ok_or("PROTOCOL_PIN missing tag=")?,
-        sha: sha.ok_or("PROTOCOL_PIN missing sha=")?,
-        url: url.ok_or("PROTOCOL_PIN missing url=")?,
+        tag: nonempty(tag.ok_or("PROTOCOL_PIN missing tag=")?, "tag")?,
+        sha: nonempty(sha.ok_or("PROTOCOL_PIN missing sha=")?, "sha")?,
+        url: nonempty(url.ok_or("PROTOCOL_PIN missing url=")?, "url")?,
     })
+}
+
+fn nonempty(value: String, key: &str) -> Result<String, Box<dyn std::error::Error>> {
+    if value.is_empty() {
+        return Err(format!("PROTOCOL_PIN {key}= must not be empty").into());
+    }
+    Ok(value)
 }
 
 fn git_clone(pin: &ProtocolPin, dest: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -171,15 +182,8 @@ fn git_clone(pin: &ProtocolPin, dest: &Path) -> Result<(), Box<dyn std::error::E
         dest.display()
     );
     let status = Command::new("git")
-        .args([
-            "clone",
-            "--depth",
-            "1",
-            "--branch",
-            &pin.tag,
-            &pin.url,
-            &dest.to_string_lossy(),
-        ])
+        .args(["clone", "--depth", "1", "--branch", &pin.tag, &pin.url])
+        .arg(dest)
         .status()?;
     if !status.success() {
         return Err(format!("git clone failed for {} @ {}", pin.url, pin.tag).into());
@@ -201,5 +205,8 @@ fn git_rev_parse(repo: &Path) -> Result<String, Box<dyn std::error::Error>> {
 fn head_matches(head: &str, pin_sha: &str) -> bool {
     let head = head.trim().to_ascii_lowercase();
     let pin = pin_sha.trim().to_ascii_lowercase();
+    if pin.is_empty() {
+        return false;
+    }
     head == pin || head.starts_with(&pin) || pin.starts_with(&head)
 }
