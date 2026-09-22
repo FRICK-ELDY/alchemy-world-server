@@ -45,7 +45,7 @@ flowchart TB
 - **二層の SSoT（ドメインは Elixir、ワイヤは経路ごと）**
 > **ドメイン**（権威ある状態・ルール・コンテンツ定義）は Elixir 側で管理します。クライアント用のコードをそのままヘッドレスのマルチプレイサーバーとして転用可能です。1000人規模のプレイヤーが交差する大規模ネットワークも Elixir の並行処理能力で捌きます。
 >
-> **ワイヤ**（バイト列や JSON の「形」の合意）は **経路・形式ごとに** SSoT が異なります（例: Zenoh の `RenderFrame` 等の **Protobuf** は submodule **`3rdparty/alchemy-protocol/proto`**、UDP 外枠は `Network.UDP.Protocol`、Phoenix はチャネルごとの JSON）。生成は [development.md の Protobuf 節](development.md#protobuf-proto)。全体の整理は [アーキテクチャ概要 — 設計思想](.workspace/0_docs/architecture/overview.md#設計思想) を参照。
+> **ワイヤ**（バイト列や JSON の「形」の合意）は **経路・形式ごとに** SSoT が異なります（例: Zenoh の `RenderFrame` 等の **Protobuf** は [alchemy-protocol](https://github.com/FRICK-ELDY/alchemy-protocol)、本リポは **`PROTOCOL_PIN`** で固定。UDP 外枠は `Network.UDP.Protocol`、Phoenix はチャネルごとの JSON）。生成は [development.md の Protobuf 節](development.md#protobuf-proto)。
 - **主時間は Elixir（推奨 20Hz）／表示は Rust（~60fps）**
 > **権威 tick**（公式状態のコミット）は Elixir。デフォルト **20Hz**。設定で 10 / 30 / 非推奨 60Hz。クライアントは描画ループで **予測・補間**し、主時間の間を埋める（[authoritative-state-sync-policy.md](.workspace/0_docs/architecture/authoritative-state-sync-policy.md)）。
 >
@@ -70,9 +70,8 @@ flowchart TB
 ### Setup & Run
 
 ```bash
-git clone --recurse-submodules git@github.com:FRICK-ELDY/alchemy-engine.git
-cd alchemy-engine
-# 既に clone 済みの場合: git submodule update --init --recursive
+git clone git@github.com:FRICK-ELDY/alchemy-world-server.git
+cd alchemy-world-server
 mix deps.get
 mix alchemy.setup
 mix alchemy.server

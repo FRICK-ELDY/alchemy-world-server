@@ -2660,6 +2660,7 @@ dependencies = [
  "num-traits",
  "prost",
  "prost-build",
+ "proto_resolve",
  "render",
  "serde",
  "shared",
@@ -3695,6 +3696,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "proto_resolve"
+version = "0.1.0"
+
+[[package]]
 name = "pxfm"
 version = "0.1.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4074,6 +4079,7 @@ dependencies = [
  "log",
  "prost",
  "prost-build",
+ "proto_resolve",
  "shared",
 ]
 

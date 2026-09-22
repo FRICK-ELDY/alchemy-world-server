@@ -1,19 +1,16 @@
 defmodule Mix.Tasks.Alchemy.Gen.Proto do
-  @shortdoc "3rdparty/alchemy-protocol/proto（または PROTO_ROOT）の .proto から Elixir / Rust の生成コードを作る"
+  @shortdoc "PROTOCOL_PIN / PROTO_ROOT の .proto から Elixir / Rust の生成コードを作る"
   @moduledoc """
   `protoc` / `prost-build` による生成処理を **この Mix タスクに集約**する。
 
-  OS ごとのシェルスクリプト（`scripts/*.sh` 等）は置かず、クロスプラットフォームで同じ手順にする。
+  ## `.proto` の場所（優先順）
 
-  ## 実装状況
+  1. 環境変数 **`PROTO_ROOT`**（`.proto` を含むディレクトリ）
+  2. 未設定時はリポジトリ直下の **`PROTOCOL_PIN`** に従い、
+     `.proto-cache/alchemy-protocol-<tag>/` へ git clone（R2）
 
-  生成ロジックは段階的に本モジュールへ追加する。詳細・契約・CI 要件は
-  `.workspace/3_done/protobuf-full-automation-procedure.md` を参照。
-
-  ## `.proto` の場所
-
-  既定は Git submodule **`3rdparty/alchemy-protocol/proto`**（[alchemy-protocol](https://github.com/FRICK-ELDY/alchemy-protocol)）。
-  取得: `git submodule update --init --recursive`。別パスを使う場合は環境変数 **`PROTO_ROOT`** にそのディレクトリを指定する。
+  旧 `3rdparty/alchemy-protocol` は廃止。親スーパープロジェクトの `protocol/` を使う場合は
+  必ず `PROTO_ROOT` を明示すること（例: `set PROTO_ROOT=%CD%\\..\\protocol\\proto`）。
 
   ## 使用例
 
@@ -36,6 +33,7 @@ defmodule Mix.Tasks.Alchemy.Gen.Proto do
 
     Mix.shell().info("")
     Mix.shell().info("[alchemy.gen.proto] Protobuf 生成を開始します。")
+    Mix.shell().info("[alchemy.gen.proto] PROTO_ROOT=#{proto_dir}")
     File.mkdir_p!(elixir_out)
     File.rm_rf!(temp_out)
     File.mkdir_p!(temp_out)
@@ -51,8 +49,7 @@ defmodule Mix.Tasks.Alchemy.Gen.Proto do
 
       replace_generated_files!(temp_out, elixir_out)
 
-      # prost-build は `network` / `render_frame_proto` の build.rs で走る（`network` ビルドで依存も解決される）。
-      # `nif` は現行 Cargo プロファイルに prost / build.rs がないため対象外（将来復活時はここに追加）。
+      # prost-build は `network` / `render_frame_proto` の build.rs で走る。
       run_step_or_raise!(
         "cargo build -p network",
         "cargo",
@@ -94,19 +91,111 @@ defmodule Mix.Tasks.Alchemy.Gen.Proto do
   defp resolve_proto_dir!(root) do
     dir =
       case System.get_env("PROTO_ROOT") do
-        nil -> Path.join(root, "3rdparty/alchemy-protocol/proto")
+        nil -> ensure_proto_cache!(root)
         p -> Path.expand(p, root)
       end
 
     unless File.dir?(dir) do
       Mix.raise(
         "Protobuf スキーマディレクトリが見つかりません: #{dir}\n" <>
-          "`git submodule update --init --recursive` で 3rdparty/alchemy-protocol を取得するか、" <>
-          "環境変数 PROTO_ROOT で .proto を含むディレクトリを指定してください。"
+          "PROTO_ROOT を設定するか、PROTOCOL_PIN に従う git clone が成功するか確認してください。"
       )
     end
 
     dir
+  end
+
+  defp ensure_proto_cache!(root) do
+    pin = read_protocol_pin!(root)
+    cache_repo = Path.join([root, ".proto-cache", "alchemy-protocol-#{pin.tag}"])
+    proto_dir = Path.join(cache_repo, "proto")
+
+    if File.dir?(proto_dir) and git_head_matches?(cache_repo, pin.sha) do
+      proto_dir
+    else
+      File.rm_rf!(cache_repo)
+      File.mkdir_p!(Path.dirname(cache_repo))
+
+      Mix.shell().info("[alchemy.gen.proto] fetching #{pin.url} @ #{pin.tag} into #{cache_repo}")
+
+      case System.cmd(
+             "git",
+             ["clone", "--depth", "1", "--branch", pin.tag, pin.url, cache_repo],
+             stderr_to_stdout: true
+           ) do
+        {out, 0} ->
+          if out != "", do: Mix.shell().info(out)
+
+        {out, code} ->
+          Mix.shell().error(out)
+          Mix.raise("git clone of alchemy-protocol failed (exit #{code})")
+      end
+
+      unless git_head_matches?(cache_repo, pin.sha) do
+        Mix.raise("PROTOCOL_PIN sha mismatch after clone (tag=#{pin.tag})")
+      end
+
+      proto_dir
+    end
+  end
+
+  defp read_protocol_pin!(root) do
+    path = Path.join(root, "PROTOCOL_PIN")
+
+    unless File.exists?(path) do
+      Mix.raise("PROTOCOL_PIN が見つかりません: #{path}")
+    end
+
+    kv =
+      path
+      |> File.read!()
+      |> String.split("\n")
+      |> Enum.reduce(%{}, fn line, acc ->
+        line = String.trim(line)
+
+        cond do
+          line == "" or String.starts_with?(line, "#") ->
+            acc
+
+          String.contains?(line, "=") ->
+            [k, v] = String.split(line, "=", parts: 2)
+            Map.put(acc, String.trim(k), String.trim(v))
+
+          true ->
+            acc
+        end
+      end)
+
+    %{
+      tag: require_nonempty!(kv, "tag"),
+      sha: require_nonempty!(kv, "sha"),
+      url: require_nonempty!(kv, "url")
+    }
+  end
+
+  defp require_nonempty!(kv, key) do
+    case Map.get(kv, key) do
+      nil -> Mix.raise("PROTOCOL_PIN missing #{key}=")
+      "" -> Mix.raise("PROTOCOL_PIN #{key}= must not be empty")
+      value -> value
+    end
+  end
+
+  defp git_head_matches?(repo, pin_sha) do
+    case System.cmd("git", ["rev-parse", "HEAD"], cd: repo, stderr_to_stdout: true) do
+      {out, 0} ->
+        head = out |> String.trim() |> String.downcase()
+        pin = pin_sha |> String.trim() |> String.downcase()
+
+        if pin == "" do
+          false
+        else
+          head == pin or String.starts_with?(head, pin) or String.starts_with?(pin, head)
+        end
+
+      _ ->
+        false
+    end
   end
 
   defp discover_proto_files!(proto_dir) do
@@ -165,9 +254,6 @@ defmodule Mix.Tasks.Alchemy.Gen.Proto do
     end
   end
 
-  # `System.halt/1` は VM を即終了するため `try` の `after` が走らず一時ディレクトリが残る。
-  # 失敗時は `Mix.raise/1` で例外にし、`after` で必ずクリーンアップする。
-  # 呼び出しは常に `opts` を渡す（`opts \\ []` は全呼び出しが 5 引数のため未使用警告のみ発生する）。
   defp run_step_or_raise!(label, cmd, args, root, opts) do
     Mix.shell().info("")
     Mix.shell().info("[STEP] #{label}")
