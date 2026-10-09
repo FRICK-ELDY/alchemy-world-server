@@ -146,9 +146,11 @@ defmodule Contents.Behaviour.Content do
   @callback local_user_input_module() :: module() | nil
 
   @doc """
-  終了要求（`__quit__` UI アクション等）が届いたときに呼ばれる。
-  セーブ、確認ダイアログ等を行ってから `System.stop/1` を呼ぶ想定。
-  未実装時は Game が `System.stop(0)` をデフォルトで実行する。
+  ローカル停止の前処理。`:main` の Game プロセスが `stop_node_local/0` の中で同期的に呼ぶ。
+
+  セーブなど、ノードを止める前のクリーンアップに使う。`self()` はその Game プロセスである。
+  `System.stop/1` は呼んではならない。例外が出ても Game 側がログして停止を続ける。
+  ネットワークの `"__quit__"` からは呼ばれない。
   """
   @callback on_quit_requested() :: :ok
 

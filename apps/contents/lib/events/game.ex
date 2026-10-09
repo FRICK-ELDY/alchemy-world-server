@@ -20,6 +20,18 @@ defmodule Contents.Events.Game do
 
   @stub_world :stub
 
+  # ネットワーク由来の ui_action として常に受け付ける名前。
+  # `"__quit__"` は含めない。ノード停止は `stop_node_local/0` のみ。
+  @builtin_remote_actions [
+    "__save__",
+    "__load__",
+    "__load_confirm__",
+    "__load_cancel__",
+    "__retry__",
+    "__skip__",
+    "__start__"
+  ]
+
   def start_link(opts \\ []) do
     room_id = Keyword.get(opts, :room_id, :main)
     name = process_name(room_id)
@@ -28,6 +40,24 @@ defmodule Contents.Events.Game do
 
   defp process_name(:main), do: __MODULE__
   defp process_name(room_id), do: {:via, Registry, {Core.RoomRegistry, room_id}}
+
+  @doc """
+  ローカル開発用のノード停止。
+
+  ネットワークの `{:ui_action, _}` からは到達しない。ノード上のコード（IEx など）から、
+  `:main` の Game プロセスの外で呼ぶ。`:main` がいればそのプロセスで
+  `on_quit_requested/0` を同期実行し、例外が出てもログしたあと `System.stop(0)` する。
+  コールバックは `System.stop/1` を呼んではならない。
+  """
+  def stop_node_local do
+    case Process.whereis(__MODULE__) do
+      pid when is_pid(pid) ->
+        GenServer.call(pid, :stop_node_local)
+
+      nil ->
+        System.stop(0)
+    end
+  end
 
   @impl true
   def init(opts) do
@@ -84,6 +114,13 @@ defmodule Contents.Events.Game do
     end
   end
 
+  @impl true
+  def handle_call(:stop_node_local, _from, state) do
+    run_quit_cleanup()
+    System.stop(0)
+    {:reply, :ok, state}
+  end
+
   # ── キャスト: 武器選択（後方互換性のため残存。UI アクションに委譲）──
 
   @impl true
@@ -101,31 +138,15 @@ defmodule Contents.Events.Game do
 
   @impl true
   def handle_info({:ui_action, action}, state) when is_binary(action) do
-    new_state =
-      case action do
-        "__save__" ->
-          Logger.info("[PERSIST] save ignored (local persistence disabled; network TBD)")
-          state
+    if remote_action_allowed?(action) do
+      {:noreply, apply_ui_action(action, state)}
+    else
+      Logger.warning(
+        "[Events.Game] rejected ui_action=#{inspect(action)} room=#{inspect(state.room_id)}"
+      )
 
-        "__load__" ->
-          Logger.info("[PERSIST] load ignored (local persistence disabled; network TBD)")
-          state
-
-        "__load_confirm__" ->
-          Logger.info("[PERSIST] load confirm ignored (local persistence disabled; network TBD)")
-          state
-
-        "__load_cancel__" ->
-          state
-
-        _ ->
-          now = now_ms()
-          context = build_context(state, now, now - state.start_ms, flow_runner(state))
-          dispatch_event_to_components({:ui_action, action}, context)
-          state
-      end
-
-    {:noreply, new_state}
+      {:noreply, state}
+    end
   end
 
   # ── インフォ: 移動入力 ────────────────────────────────────────────
@@ -276,15 +297,13 @@ defmodule Contents.Events.Game do
     {:noreply, state}
   end
 
-  # 終了要求（Device.Keyboard 等が __quit__ 受け取り時に送信。Content コールバックを経由）
-  def handle_info(:quit_requested, _state) do
-    content = current_content()
+  # 旧経路。リモートの `"__quit__"` からは送られない。ノードは止めない。
+  def handle_info(:quit_requested, state) do
+    Logger.warning(
+      "[Events.Game] ignored :quit_requested room=#{inspect(state.room_id)} (node stop is local-only)"
+    )
 
-    if function_exported?(content, :on_quit_requested, 0) do
-      content.on_quit_requested()
-    else
-      System.stop(0)
-    end
+    {:noreply, state}
   end
 
   # ── インフォ: エンジン内部メッセージ（汎用ディスパッチ）──────────────────
@@ -322,6 +341,14 @@ defmodule Contents.Events.Game do
   def handle_info(:elixir_frame_tick, state) do
     schedule_elixir_frame_tick()
     handle_frame_events([], state, mailbox_throttled?(state.room_id))
+  end
+
+  def handle_info(msg, state) do
+    Logger.warning(
+      "[Events.Game] ignoring unknown message room=#{inspect(state.room_id)} msg=#{format_unknown_message(msg)}"
+    )
+
+    {:noreply, state}
   end
 
   # ── メインフレームループ ──────────────────────────────────────────
@@ -510,6 +537,74 @@ defmodule Contents.Events.Game do
     end
 
     :ok
+  end
+
+  defp apply_ui_action(action, state) do
+    case action do
+      "__save__" ->
+        Logger.info("[PERSIST] save ignored (local persistence disabled; network TBD)")
+        state
+
+      "__load__" ->
+        Logger.info("[PERSIST] load ignored (local persistence disabled; network TBD)")
+        state
+
+      "__load_confirm__" ->
+        Logger.info("[PERSIST] load confirm ignored (local persistence disabled; network TBD)")
+        state
+
+      "__load_cancel__" ->
+        state
+
+      _ ->
+        now = now_ms()
+        context = build_context(state, now, now - state.start_ms, flow_runner(state))
+        dispatch_event_to_components({:ui_action, action}, context)
+        state
+    end
+  end
+
+  defp remote_action_allowed?("__quit__"), do: false
+
+  defp remote_action_allowed?(action) when is_binary(action) do
+    action in @builtin_remote_actions or content_remote_action?(action)
+  end
+
+  defp content_remote_action?(action) do
+    content = current_content()
+
+    handlers =
+      if function_exported?(content, :ui_action_handlers, 0) do
+        content.ui_action_handlers()
+      else
+        %{}
+      end
+
+    case Map.get(handlers, action) do
+      nil -> false
+      :quit -> false
+      _ -> true
+    end
+  end
+
+  defp run_quit_cleanup do
+    content = current_content()
+
+    if function_exported?(content, :on_quit_requested, 0) do
+      try do
+        content.on_quit_requested()
+      catch
+        kind, reason ->
+          Logger.error(
+            "[Events.Game] on_quit_requested failed: " <>
+              Exception.format(kind, reason, __STACKTRACE__)
+          )
+      end
+    end
+  end
+
+  defp format_unknown_message(msg) do
+    inspect(msg, limit: 5, binaries: :truncate, printable_limit: 64)
   end
 
   defp flow_runner(state), do: current_content().flow_runner(state.room_id)

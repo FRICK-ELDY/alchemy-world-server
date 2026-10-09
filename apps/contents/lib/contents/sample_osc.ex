@@ -49,7 +49,7 @@ defmodule Content.SampleOsc do
     end
   end
 
-  def on_quit_requested, do: System.stop(0)
+  def on_quit_requested, do: :ok
 
   def build_frame(playing_state, context),
     do: Content.SampleOsc.Playing.build_frame(playing_state, context)

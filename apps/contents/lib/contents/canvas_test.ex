@@ -7,7 +7,7 @@ defmodule Content.CanvasTest do
 
   ## 検証機能
   - HUD Canvas（スクリーン空間）: ESC キーで表示/非表示を切り替え
-  - HUD 内ボタン: 押下でウィンドウを閉じる（`__quit__` アクション）
+  - HUD 内ボタン: Quit は描画する。押下はサーバを止めない（ノード停止はローカルの `stop_node_local/0` のみ）
   - ワールド Canvas（3D 空間内）: 3D 座標に固定されたテキストパネルを複数配置
   - レイアウト: `vertical_layout` / `rect` / `world_text` の組み合わせ
 
@@ -42,7 +42,7 @@ defmodule Content.CanvasTest do
     end
   end
 
-  def on_quit_requested, do: System.stop(0)
+  def on_quit_requested, do: :ok
 
   def build_frame(playing_state, context),
     do: Content.CanvasTest.Playing.build_frame(playing_state, context)
