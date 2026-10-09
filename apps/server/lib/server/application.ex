@@ -24,26 +24,13 @@ defmodule Server.Application do
       Core.FormulaStore.LocalBackend,
       {Contents.Scenes.Stack, [content_module: content]},
       Core.EventBus,
-      Core.RoomSupervisor,
+      Server.Rooms,
       Core.StressMonitor,
       Core.Stats,
       Core.Telemetry
     ]
 
     opts = [strategy: :one_for_one, name: Server.Supervisor]
-
-    case Supervisor.start_link(children, opts) do
-      {:ok, pid} ->
-        case Core.RoomSupervisor.start_room(:main) do
-          {:ok, _} -> :ok
-          {:error, :already_started} -> :ok
-          {:error, reason} -> raise "Failed to start main room: #{inspect(reason)}"
-        end
-
-        {:ok, pid}
-
-      {:error, _} = err ->
-        err
-    end
+    Supervisor.start_link(children, opts)
   end
 end

@@ -7,6 +7,9 @@ defmodule Contents.MenuComponent do
   - メニュー非表示中: マウスロック（ゲーム操作モード）
 
   起動時はメニュー表示で開始するため、すぐに Quit を押せる。
+
+  Quit ボタンは描画したまま残す。押下は `"__quit__"` を送るが、サーバは止まらない。
+  ノードを止めるのは、そのノード上で呼ぶ `Contents.Events.Game.stop_node_local/0` だけである。
   """
   @behaviour Core.Component
 
@@ -35,9 +38,8 @@ defmodule Contents.MenuComponent do
   end
 
   def on_event({:ui_action, "__quit__"}, _context) do
-    # Rust 描画スレッド（winit）は Elixir とは別に動くため、
-    # Application.stop ではウィンドウが閉じない。プロセス全体を終了させる。
-    System.stop(0)
+    # ボタンは残す。押下先の "__quit__" は Events.Game が拒否する。
+    # ノード停止は Contents.Events.Game.stop_node_local/0（ローカル呼び出し）だけ。
     :ok
   end
 

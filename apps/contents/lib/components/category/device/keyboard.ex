@@ -5,26 +5,22 @@ defmodule Contents.Components.Category.Device.Keyboard do
   ## 処理するイベント
   - `{:sprint, bool}` — 左 Shift キー押下状態
   - `{:key_pressed, :escape}` — HUD 表示トグル（グラブ中・解放中どちらでも届く）
-  - `{:ui_action, "__quit__"}` — 終了要求（実行は上位層に委譲。イベント送信のみ）
   - `{:ui_action, "__retry__"}` — リトライ要求（game_over シーン state に retry: true を設定）
 
   ## UI アクション（ui_action_handlers で統一）
-  Keyboard がデフォルトで `__retry__` と `__quit__` を用意し、Content の `ui_action_handlers/0`
+  Keyboard がデフォルトで `__retry__` を用意し、Content の `ui_action_handlers/0`
   とマージして適用する。Content が同じキーを返した場合は上書きされる（競合ではなく意図的なオーバーライド）。
-  `__retry__` / `__quit__` を Content に含めなくてもデフォルトで動作する。
-  ハンドラ値: `{scene_type, fn state -> new_state end}` または `:quit`。
+  `__retry__` を Content に含めなくてもデフォルトで動作する。
+  ハンドラ値: `{scene_type, fn state -> new_state end}`。
   例: `%{"__start__" => {:title, fn s -> Map.put(s, :start, true) end}}`
 
-  ## 終了の委譲
-  `__quit__` を受け取った場合、`System.stop/1` は呼ばない。
-  イベントハンドラ（Game プロセス）に `:quit_requested` を送信し、
-  実際の終了は上位層が行う。
-
-  ## 制約
-  `event_handler/1` が nil（イベントハンドラ未起動）の場合、
-  `:quit_requested` は送信されず終了しない。仕様として許容する。
+  ## 終了
+  `"__quit__"` は既定ハンドラにしない。ノード停止は `Contents.Events.Game.stop_node_local/0`
+  （ローカル呼び出し）だけが行う。コンテンツが `:quit` を返しても、ここではログして無視する。
   """
   @behaviour Core.Component
+
+  require Logger
 
   alias Contents.Components.Category.Device.Helpers
 
@@ -53,8 +49,12 @@ defmodule Contents.Components.Category.Device.Keyboard do
         :ok
 
       :quit ->
-        pid = content.event_handler(room_id)
-        if pid, do: send(pid, :quit_requested)
+        # 境界は Events.Game の許可リスト（`:quit` と `"__quit__"` は配送しない）。
+        # ここは on_event/2 を Game 以外から直接呼んだときの保険。
+        Logger.warning(
+          "[Device.Keyboard] ignored :quit handler for #{inspect(action)} room=#{inspect(room_id)}"
+        )
+
         :ok
 
       nil ->
@@ -70,7 +70,6 @@ defmodule Contents.Components.Category.Device.Keyboard do
     defaults =
       %{}
       |> maybe_put_retry(content)
-      |> Map.put("__quit__", :quit)
 
     custom =
       if function_exported?(content, :ui_action_handlers, 0) do

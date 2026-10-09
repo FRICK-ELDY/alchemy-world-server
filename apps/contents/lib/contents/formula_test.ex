@@ -36,7 +36,7 @@ defmodule Content.FormulaTest do
     end
   end
 
-  def on_quit_requested, do: System.stop(0)
+  def on_quit_requested, do: :ok
 
   def build_frame(playing_state, context),
     do: Content.FormulaTest.Playing.build_frame(playing_state, context)
