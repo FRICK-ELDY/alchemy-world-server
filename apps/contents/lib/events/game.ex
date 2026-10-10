@@ -45,8 +45,9 @@ defmodule Contents.Events.Game do
   ローカル開発用のノード停止。
 
   ネットワークの `{:ui_action, _}` からは到達しない。ノード上のコード（IEx など）から、
-  `:main` の Game プロセスの外で呼ぶ。`:main` がいればそのプロセスで
-  `on_quit_requested/0` を同期実行し、例外が出てもログしたあと `System.stop(0)` する。
+  `:main` の Game プロセスの外で呼ぶ。  `:main` がいればそのプロセスで
+  `on_quit_requested/0` を同期実行し、応答を返したあと別プロセスで `System.stop(0)` する。
+  `System.stop/1` を Game プロセス自身が呼ぶと、停止がこのプロセスの終了を待ちデッドロックする。
   コールバックは `System.stop/1` を呼んではならない。
   """
   def stop_node_local do
@@ -115,10 +116,11 @@ defmodule Contents.Events.Game do
   end
 
   @impl true
-  def handle_call(:stop_node_local, _from, state) do
+  def handle_call(:stop_node_local, from, state) do
     run_quit_cleanup()
-    System.stop(0)
-    {:reply, :ok, state}
+    GenServer.reply(from, :ok)
+    spawn(fn -> System.stop(0) end)
+    {:noreply, state}
   end
 
   # ── キャスト: 武器選択（後方互換性のため残存。UI アクションに委譲）──
