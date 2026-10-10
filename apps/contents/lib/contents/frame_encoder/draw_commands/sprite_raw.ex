@@ -8,10 +8,10 @@ defmodule Contents.FrameEncoder.DrawCommands.SpriteRaw do
       kind:
         {:sprite_raw,
          %Alchemy.Render.SpriteRaw{
-           x: Proto.pb_float(x),
-           y: Proto.pb_float(y),
-           width: Proto.pb_float(width),
-           height: Proto.pb_float(height),
+           x: Proto.pb_double(x),
+           y: Proto.pb_double(y),
+           width: Proto.pb_double(width),
+           height: Proto.pb_double(height),
            uv_offset: Proto.vec2_to_pb_list({uv_ox, uv_oy}),
            uv_size: Proto.vec2_to_pb_list({uv_sx, uv_sy}),
            color_tint: Proto.color_tuple_to_pb_list({r, g, b, a})

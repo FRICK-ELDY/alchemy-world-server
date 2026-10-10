@@ -8,12 +8,12 @@ defmodule Contents.FrameEncoder.DrawCommands.Box3d do
       kind:
         {:box_3d,
          %Alchemy.Render.Box3dCmd{
-           x: Proto.pb_float(x),
-           y: Proto.pb_float(y),
-           z: Proto.pb_float(z),
-           half_w: Proto.pb_float(half_w),
-           half_h: Proto.pb_float(half_h),
-           half_d: Proto.pb_float(half_d),
+           x: Proto.pb_double(x),
+           y: Proto.pb_double(y),
+           z: Proto.pb_double(z),
+           half_w: Proto.pb_double(half_w),
+           half_h: Proto.pb_double(half_h),
+           half_d: Proto.pb_double(half_d),
            color: Proto.color_tuple_to_pb_list({r, g, b, a})
          }}
     }

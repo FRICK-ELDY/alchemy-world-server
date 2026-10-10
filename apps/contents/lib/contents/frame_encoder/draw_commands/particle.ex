@@ -8,13 +8,13 @@ defmodule Contents.FrameEncoder.DrawCommands.Particle do
       kind:
         {:particle,
          %Alchemy.Render.ParticleCmd{
-           x: Proto.pb_float(x),
-           y: Proto.pb_float(y),
+           x: Proto.pb_double(x),
+           y: Proto.pb_double(y),
            r: Proto.pb_float(r),
            g: Proto.pb_float(g),
            b: Proto.pb_float(b),
            alpha: Proto.pb_float(alpha),
-           size: Proto.pb_float(size)
+           size: Proto.pb_double(size)
          }}
     }
   end

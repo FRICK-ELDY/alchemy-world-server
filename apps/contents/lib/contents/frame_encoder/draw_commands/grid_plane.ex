@@ -8,7 +8,7 @@ defmodule Contents.FrameEncoder.DrawCommands.GridPlane do
       kind:
         {:grid_plane,
          %Alchemy.Render.GridPlaneCmd{
-           size: Proto.pb_float(size),
+           size: Proto.pb_double(size),
            divisions: divisions,
            color: Proto.color_tuple_to_pb_list({r, g, b, a})
          }}
