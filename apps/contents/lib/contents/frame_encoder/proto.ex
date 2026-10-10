@@ -3,6 +3,10 @@ defmodule Contents.FrameEncoder.Proto do
 
   # DrawCommand / Camera / Ui / MeshDef / injection エンコード用の共有ヘルパー。
 
+  # 空間量（座標・ワールド寸法）。ワイヤは proto3 `double`（binary64）。
+  def pb_double(n), do: n * 1.0
+
+  # 色・UV・ピクセル量。ワイヤは proto3 `float`（binary32）。切り捨てはエンコード時。
   def pb_float(n), do: n * 1.0
 
   def color_tuple_to_pb_list({r, g, b, a}) do
@@ -11,5 +15,5 @@ defmodule Contents.FrameEncoder.Proto do
 
   def vec2_to_pb_list({a, b}), do: [pb_float(a), pb_float(b)]
 
-  def vec3_to_pb_list({a, b, c}), do: [pb_float(a), pb_float(b), pb_float(c)]
+  def vec3_to_pb_list({a, b, c}), do: [pb_double(a), pb_double(b), pb_double(c)]
 end

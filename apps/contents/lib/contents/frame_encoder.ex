@@ -18,7 +18,7 @@ defmodule Contents.FrameEncoder do
   Zenoh フレーム配信用 protobuf エンコーダ。
 
   DrawCommand・CameraParams・UiCanvas・MeshDef・任意の `AudioFrame`（`render_frame/audio_frame.proto`）を `Alchemy.Render.RenderFrame` に変換して encode する。
-  スキーマ: [alchemy-protocol の `render_frame.proto`（例: タグ `v0.1.2`）](https://github.com/FRICK-ELDY/alchemy-protocol/blob/v0.1.2/proto/render_frame.proto)（本リポのピンは `PROTOCOL_PIN`）。
+  スキーマ: [alchemy-protocol の `render_frame.proto`（例: タグ `v1.0.0`）](https://github.com/FRICK-ELDY/alchemy-protocol/blob/v1.0.0/proto/render_frame.proto)（本リポのピンは `PROTOCOL_PIN`）。
   """
 
   @doc """
@@ -80,8 +80,8 @@ defmodule Contents.FrameEncoder do
       kind:
         {:camera_2d,
          %Alchemy.Render.Camera2d{
-           offset_x: Proto.pb_float(offset_x),
-           offset_y: Proto.pb_float(offset_y)
+           offset_x: Proto.pb_double(offset_x),
+           offset_y: Proto.pb_double(offset_y)
          }}
     }
   end
@@ -95,8 +95,8 @@ defmodule Contents.FrameEncoder do
            target: Proto.vec3_to_pb_list({tx, ty, tz}),
            up: Proto.vec3_to_pb_list({ux, uy, uz}),
            fov_deg: Proto.pb_float(fov_deg),
-           near: Proto.pb_float(near),
-           far: Proto.pb_float(far)
+           near: Proto.pb_double(near),
+           far: Proto.pb_double(far)
          }}
     }
   end
@@ -244,9 +244,9 @@ defmodule Contents.FrameEncoder do
       kind:
         {:world_text,
          %Alchemy.Render.UiWorldText{
-           world_x: Proto.pb_float(world_x),
-           world_y: Proto.pb_float(world_y),
-           world_z: Proto.pb_float(world_z),
+           world_x: Proto.pb_double(world_x),
+           world_y: Proto.pb_double(world_y),
+           world_z: Proto.pb_double(world_z),
            text: text,
            color: Proto.color_tuple_to_pb_list({r, g, b, a}),
            lifetime: Proto.pb_float(lifetime),
@@ -283,7 +283,7 @@ defmodule Contents.FrameEncoder do
   injection_map を `Alchemy.Frame.FrameInjection` にエンコードする。
 
   バイナリは `Contents.Events.Game` のフレーム注入フローで参照可能。旧 NIF への受け渡しは撤去済み。
-  map のキーは atom でも string でも可。スキーマ: [frame_injection.proto（alchemy-protocol `v0.1.2`）](https://github.com/FRICK-ELDY/alchemy-protocol/blob/v0.1.2/proto/frame_injection.proto)（本リポのピンは `PROTOCOL_PIN`）。未対応キーはログして無視する。
+  map のキーは atom でも string でも可。スキーマ: [frame_injection.proto（alchemy-protocol `v1.0.0`）](https://github.com/FRICK-ELDY/alchemy-protocol/blob/v1.0.0/proto/frame_injection.proto)（本リポのピンは `PROTOCOL_PIN`）。未対応キーはログして無視する。
   """
   @spec encode_injection_map(map()) :: {:ok, binary()} | {:error, term()}
   def encode_injection_map(injection) when is_map(injection) do

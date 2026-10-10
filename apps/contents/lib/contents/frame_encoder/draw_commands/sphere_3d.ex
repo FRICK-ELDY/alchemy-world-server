@@ -8,10 +8,10 @@ defmodule Contents.FrameEncoder.DrawCommands.Sphere3d do
       kind:
         {:sphere_3d,
          %Alchemy.Render.Sphere3dCmd{
-           x: Proto.pb_float(x),
-           y: Proto.pb_float(y),
-           z: Proto.pb_float(z),
-           radius: Proto.pb_float(radius),
+           x: Proto.pb_double(x),
+           y: Proto.pb_double(y),
+           z: Proto.pb_double(z),
+           radius: Proto.pb_double(radius),
            color: Proto.color_tuple_to_pb_list({r, g, b, a})
          }}
     }

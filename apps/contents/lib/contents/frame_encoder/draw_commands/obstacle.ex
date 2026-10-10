@@ -8,9 +8,9 @@ defmodule Contents.FrameEncoder.DrawCommands.Obstacle do
       kind:
         {:obstacle,
          %Alchemy.Render.ObstacleCmd{
-           x: Proto.pb_float(x),
-           y: Proto.pb_float(y),
-           radius: Proto.pb_float(radius),
+           x: Proto.pb_double(x),
+           y: Proto.pb_double(y),
+           radius: Proto.pb_double(radius),
            kind: kind
          }}
     }
