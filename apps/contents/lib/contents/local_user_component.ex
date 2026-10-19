@@ -24,76 +24,36 @@ defmodule Contents.LocalUserComponent do
 
   @impl true
   def on_event({:raw_key, key, key_state}, context) when key_state in [:pressed, :released] do
-    room_id = Map.get(context, :room_id, :main)
-    keys_held = get_keys_held_private(room_id)
-
-    {new_keys, new_sprint} =
-      case key_state do
-        :pressed ->
-          new_keys = MapSet.put(keys_held, key)
-          {new_keys, sprint_from_keys(new_keys)}
-
-        :released ->
-          new_keys = MapSet.delete(keys_held, key)
-          {new_keys, sprint_from_keys(new_keys)}
-      end
-
-    {dx, dy} = move_vector_from_keys(new_keys)
-    prev_sprint = get_sprint_private(room_id)
-
-    :ets.insert(@table, {{room_id, :keys_held}, new_keys})
-    :ets.insert(@table, {{room_id, :sprint}, new_sprint})
-    :ets.insert(@table, {{room_id, :move}, {dx, dy}})
-
-    handler = get_event_handler(context, room_id)
-
-    if handler do
-      send(handler, {:move_input, dx * 1.0, dy * 1.0})
-
-      if new_sprint != prev_sprint do
-        send(handler, {:sprint, new_sprint})
-      end
-
-      if key == :escape and key_state == :pressed do
-        send(handler, {:key_pressed, :escape})
-      end
-    end
-
-    :ok
+    with_room(context, fn room_id ->
+      apply_raw_key(key, key_state, context, room_id)
+    end)
   end
 
   def on_event({:mouse_delta, dx, dy}, context) when is_float(dx) and is_float(dy) do
-    room_id = Map.get(context, :room_id, :main)
-    :ets.insert(@table, {{room_id, :mouse_delta}, {dx, dy}})
-    :ok
+    with_room(context, fn room_id ->
+      :ets.insert(@table, {{room_id, :mouse_delta}, {dx, dy}})
+      :ok
+    end)
   end
 
   def on_event({:cursor_position, x, y}, context) when is_number(x) and is_number(y) do
-    room_id = Map.get(context, :room_id, :main)
-    :ets.insert(@table, {{room_id, :mouse_pos}, {x * 1.0, y * 1.0}})
-    :ok
+    with_room(context, fn room_id ->
+      :ets.insert(@table, {{room_id, :mouse_pos}, {x * 1.0, y * 1.0}})
+      :ok
+    end)
   end
 
   def on_event({:move_input, dx, dy}, context) when is_number(dx) and is_number(dy) do
-    room_id = Map.get(context, :room_id, :main)
-    :ets.insert(@table, {{room_id, :move}, {dx * 1.0, dy * 1.0}})
-    :ok
+    with_room(context, fn room_id ->
+      :ets.insert(@table, {{room_id, :move}, {dx * 1.0, dy * 1.0}})
+      :ok
+    end)
   end
 
   def on_event(:focus_lost, context) do
-    room_id = Map.get(context, :room_id, :main)
-    prev_sprint = get_sprint_private(room_id)
-
-    :ets.insert(@table, {{room_id, :keys_held}, MapSet.new()})
-    :ets.insert(@table, {{room_id, :sprint}, false})
-    :ets.insert(@table, {{room_id, :move}, {0, 0}})
-    :ets.insert(@table, {{room_id, :mouse_delta}, {0.0, 0.0}})
-
-    handler = get_event_handler(context, room_id)
-    if handler, do: send(handler, {:move_input, 0.0, 0.0})
-    if handler && prev_sprint, do: send(handler, {:sprint, false})
-
-    :ok
+    with_room(context, fn room_id ->
+      apply_focus_lost(context, room_id)
+    end)
   end
 
   def on_event(_event, _context), do: :ok
@@ -198,6 +158,66 @@ defmodule Contents.LocalUserComponent do
           else: 0
 
     {dx, dy}
+  end
+
+  defp with_room(context, fun) do
+    case Map.get(context, :room_id) do
+      nil -> :ok
+      room_id -> fun.(room_id)
+    end
+  end
+
+  defp apply_raw_key(key, key_state, context, room_id) do
+    keys_held = get_keys_held_private(room_id)
+
+    {new_keys, new_sprint} =
+      case key_state do
+        :pressed ->
+          new_keys = MapSet.put(keys_held, key)
+          {new_keys, sprint_from_keys(new_keys)}
+
+        :released ->
+          new_keys = MapSet.delete(keys_held, key)
+          {new_keys, sprint_from_keys(new_keys)}
+      end
+
+    {dx, dy} = move_vector_from_keys(new_keys)
+    prev_sprint = get_sprint_private(room_id)
+
+    :ets.insert(@table, {{room_id, :keys_held}, new_keys})
+    :ets.insert(@table, {{room_id, :sprint}, new_sprint})
+    :ets.insert(@table, {{room_id, :move}, {dx, dy}})
+
+    handler = get_event_handler(context, room_id)
+
+    if handler do
+      send(handler, {:move_input, dx * 1.0, dy * 1.0})
+
+      if new_sprint != prev_sprint do
+        send(handler, {:sprint, new_sprint})
+      end
+
+      if key == :escape and key_state == :pressed do
+        send(handler, {:key_pressed, :escape})
+      end
+    end
+
+    :ok
+  end
+
+  defp apply_focus_lost(context, room_id) do
+    prev_sprint = get_sprint_private(room_id)
+
+    :ets.insert(@table, {{room_id, :keys_held}, MapSet.new()})
+    :ets.insert(@table, {{room_id, :sprint}, false})
+    :ets.insert(@table, {{room_id, :move}, {0, 0}})
+    :ets.insert(@table, {{room_id, :mouse_delta}, {0.0, 0.0}})
+
+    handler = get_event_handler(context, room_id)
+    if handler, do: send(handler, {:move_input, 0.0, 0.0})
+    if handler && prev_sprint, do: send(handler, {:sprint, false})
+
+    :ok
   end
 
   defp get_event_handler(context, room_id) do

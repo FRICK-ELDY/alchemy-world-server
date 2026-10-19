@@ -59,9 +59,9 @@ defmodule Server.MainRoom do
       {:error, :already_started} ->
         :wait
 
-      # :main は Contents.Events.Game というローカル名を取る。
+      # :main の Game は Contents.Events.Game というローカル名を取る。
       # 旧プロセスが名前を離す前は {:already_started, pid} になる。その pid が
-      # 今の RoomSupervisor の子でなければ、死ぬまで待ってから作り直す。
+      # 今の RoomSupervisor 配下でなければ、死ぬまで待ってから作り直す。
       {:error, {:already_started, pid}} ->
         if supervised_main?(pid), do: :ok, else: :wait
 
@@ -71,7 +71,21 @@ defmodule Server.MainRoom do
   end
 
   defp supervised_main?(pid) when is_pid(pid) do
-    Process.alive?(pid) and room_supervisor_child?(pid)
+    Process.alive?(pid) and Enum.any?([pid | ancestors(pid)], &room_supervisor_child?/1)
+  end
+
+  # `$ancestors` の先頭だけだと、Game と RoomSupervisor の間にプロセスが増えたときに
+  # 生きている :main を監督下と認めない。
+  defp ancestors(pid) do
+    case Process.info(pid, :dictionary) do
+      {:dictionary, dict} ->
+        dict
+        |> Keyword.get(:"$ancestors", [])
+        |> Enum.filter(&is_pid/1)
+
+      _ ->
+        []
+    end
   end
 
   defp room_supervisor_child?(pid) do

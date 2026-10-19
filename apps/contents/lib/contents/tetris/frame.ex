@@ -21,7 +21,7 @@ defmodule Content.Tetris.Frame do
 
   def build(context) do
     content = Core.Config.current()
-    room_id = Map.get(context, :room_id, :main)
+    room_id = Map.get(context, :room_id)
     runner = content.flow_runner(room_id)
     current = Map.get(context, :current_scene, :title)
 

@@ -225,10 +225,11 @@ defmodule Contents.Components.Category.Network.Osc.Receiver do
   end
 
   defp maybe_listen(state) do
+    # reuseaddr は付けない。同じポートの 2 本目がソケットを持たないようにする。
+    # ルームごとのシーン state とは別に、待受はノードで 1 つである。
     case :gen_udp.open(state.fields.port, [
            :binary,
            {:active, true},
-           {:reuseaddr, true},
            {:ip, {0, 0, 0, 0}}
          ]) do
       {:ok, socket} ->

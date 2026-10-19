@@ -202,6 +202,19 @@ defmodule Contents.Components.Category.Network.Osc.LoopbackTest do
     assert field.field == nil
   end
 
+  test "同じポートの 2 つ目はソケットを持たない" do
+    {:ok, first} = Receiver.start_link(port: 0, access_reason: "first listener")
+    on_exit(fn -> if Process.alive?(first), do: Receiver.stop(first) end)
+
+    port = Receiver.fields(first).port
+    {:ok, second} = Receiver.start_link(port: port, access_reason: "second listener")
+    on_exit(fn -> if Process.alive?(second), do: Receiver.stop(second) end)
+
+    assert Receiver.fields(first).is_listening
+    refute Receiver.fields(second).is_listening
+    assert Receiver.listen_error(second) == :eaddrinuse
+  end
+
   defp wait_until(fun, attempts \\ 50) do
     if fun.() do
       true

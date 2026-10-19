@@ -25,7 +25,13 @@ defmodule Contents.Components.Category.Rendering.Render do
   end
 
   defp render_frame(content, context) do
-    room_id = Map.get(context, :room_id, :main)
+    case Map.get(context, :room_id) do
+      nil -> :ok
+      room_id -> render_room_frame(content, context, room_id)
+    end
+  end
+
+  defp render_room_frame(content, context, room_id) do
     runner = content.flow_runner(room_id)
     playing_state = fetch_playing_state(runner, content)
     current_scene = resolve_current_scene(runner, content)

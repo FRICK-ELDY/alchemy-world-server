@@ -13,15 +13,15 @@ defmodule Contents.Scenes.Stack do
   ## オプション
 
   - `:content_module` (必須) - シーン構成を提供するコンテンツモジュール（`initial_scenes/0`, `scene_*` を実装）
-  - `:room_id` (オプション) - マルチルーム対応用。指定時は `{__MODULE__, room_id}` で名前登録される
-  - `:name` (オプション) - GenServer の登録名。`room_id` 未指定時のみ使用。省略時は `__MODULE__`
+  - `:room_id` (ルーム起動時は必須) - `Contents.Scenes.Registry` に登録し、`whereis/1` で引ける
+  - `:name` (オプション) - GenServer の登録名。`room_id` 未指定時のみ使用
+
+  ルームの起動側が `scene_stack_spec/1` 経由で本プロセスを子として起動する。
+  ノード全体で 1 つのスタックは持たない。
+  読み書きは `whereis/1` が返した pid を渡す。サーバ引数は省略しない。
 
   ## 例
 
-      # 単一ルーム（content_module は通常 `config :server, :current` と同じ）
-      Contents.Scenes.Stack.start_link(content_module: Content.BulletHell3D)
-
-      # マルチルーム準備（room_id 指定）
       Contents.Scenes.Stack.start_link(
         content_module: Content.BulletHell3D,
         room_id: "room-1"
@@ -30,28 +30,49 @@ defmodule Contents.Scenes.Stack do
 
   use GenServer
 
+  @registry Contents.Scenes.Registry
+
+  @doc """
+  ルームの子として起動するための child spec。
+
+  `content_module` はそのルームの `initial_scenes/0` と `scene_*` を持つモジュール。
+  """
+  def spec(content_module, room_id) when is_atom(content_module) do
+    {__MODULE__, [content_module: content_module, room_id: room_id]}
+  end
+
+  @doc """
+  `room_id` のシーンスタック pid。未起動なら `nil`。
+  """
+  def whereis(room_id) do
+    case Registry.lookup(@registry, room_id) do
+      [{pid, _}] when is_pid(pid) -> pid
+      [] -> nil
+    end
+  end
+
   def start_link(opts) do
     name = resolve_name(opts)
     GenServer.start_link(__MODULE__, opts, name: name)
   end
 
-  def current(server \\ default_server()) do
+  def current(server) do
     GenServer.call(server, :current)
   end
 
-  def render_type(server \\ default_server()) do
+  def render_type(server) do
     GenServer.call(server, :render_type)
   end
 
-  def push_scene(server \\ default_server(), scene_type, init_arg \\ %{}) do
+  def push_scene(server, scene_type, init_arg \\ %{}) do
     GenServer.call(server, {:push, scene_type, init_arg})
   end
 
-  def pop_scene(server \\ default_server()) do
+  def pop_scene(server) do
     GenServer.call(server, :pop)
   end
 
-  def replace_scene(server \\ default_server(), scene_type, init_arg \\ %{}) do
+  def replace_scene(server, scene_type, init_arg \\ %{}) do
     GenServer.call(server, {:replace, scene_type, init_arg})
   end
 
@@ -62,12 +83,11 @@ defmodule Contents.Scenes.Stack do
   ファサード利用 Content では state は `%{scene_module: mod, inner_state: inner}` のラップ済みなので、
   「現在の inner state を引数に取り更新する」ような fun を渡す場合はラップ構造を意識すること。
   """
-  def update_current(server \\ default_server(), fun) when is_function(fun, 1) do
+  def update_current(server, fun) when is_function(fun, 1) do
     GenServer.call(server, {:update_current, fun})
   end
 
-  def update_by_scene_type(server \\ default_server(), scene_type, fun)
-      when is_function(fun, 1) do
+  def update_by_scene_type(server, scene_type, fun) when is_function(fun, 1) do
     GenServer.call(server, {:update_by_scene_type, scene_type, fun})
   end
 
@@ -77,7 +97,7 @@ defmodule Contents.Scenes.Stack do
   該当シーンがスタックに無い場合は `%{}` を返す。このため「シーンが存在しない」と
   「シーンはあるが state が空 map」は区別できない。区別が必要な場合は将来 nil を返す API の検討余地がある。
   """
-  def get_scene_state(server \\ default_server(), scene_type) do
+  def get_scene_state(server, scene_type) do
     GenServer.call(server, {:get_scene_state, scene_type})
   end
 
@@ -202,15 +222,10 @@ defmodule Contents.Scenes.Stack do
 
   defp resolve_name(opts) do
     cond do
-      room_id = Keyword.get(opts, :room_id) -> {__MODULE__, room_id}
+      Keyword.has_key?(opts, :room_id) -> {:via, Registry, {@registry, opts[:room_id]}}
       name = Keyword.get(opts, :name) -> name
-      true -> __MODULE__
+      true -> raise "Contents.Scenes.Stack requires :room_id or :name"
     end
-  end
-
-  defp default_server do
-    # 単一 Stack は __MODULE__ で登録。マルチルーム時は呼び出し元が {__MODULE__, room_id} を明示的に渡す。
-    __MODULE__
   end
 
   # Contents.Scenes ファサード経由で init した場合、state は %{scene_module: mod, inner_state: inner} で包まれる。

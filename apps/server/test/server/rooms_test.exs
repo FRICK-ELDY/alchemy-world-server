@@ -14,7 +14,7 @@ defmodule Server.RoomsTest do
     new_pid = wait_for_supervised_main(old_pid, 100)
     assert new_pid != old_pid
     assert Process.alive?(new_pid)
-    assert child_of?(new_sup, new_pid)
+    assert supervised_under?(new_sup, new_pid)
   end
 
   test "Registry に残った生きている旧 pid を :main とみなさない" do
@@ -46,7 +46,7 @@ defmodule Server.RoomsTest do
     pid = wait_for_supervised_main(holder, 100)
     assert pid != holder
     assert Process.whereis(Contents.Events.Game) == pid
-    assert child_of?(Process.whereis(Core.RoomSupervisor), pid)
+    assert supervised_under?(Process.whereis(Core.RoomSupervisor), pid)
   end
 
   defp restart_main_room do
@@ -59,7 +59,7 @@ defmodule Server.RoomsTest do
 
     case Core.RoomRegistry.get_loop(:main) do
       {:ok, pid} ->
-        if child_of?(sup, pid) do
+        if supervised_game?(sup, pid) do
           assert :ok = Core.RoomSupervisor.stop_room(:main)
         end
 
@@ -73,7 +73,7 @@ defmodule Server.RoomsTest do
 
     case Core.RoomRegistry.get_loop(:main) do
       {:ok, pid} ->
-        if child_of?(sup, pid) do
+        if supervised_game?(sup, pid) do
           :ok
         else
           if Process.alive?(pid), do: GenServer.stop(pid, :normal, 1_000)
@@ -108,7 +108,7 @@ defmodule Server.RoomsTest do
 
     case Core.RoomRegistry.get_loop(:main) do
       {:ok, pid} when is_pid(pid) and pid != excluded ->
-        if Process.alive?(pid) and child_of?(sup, pid) do
+        if Process.alive?(pid) and supervised_game?(sup, pid) do
           pid
         else
           pause(fn -> wait_for_supervised_main(excluded, attempts - 1) end)
@@ -116,6 +116,26 @@ defmodule Server.RoomsTest do
 
       _ ->
         pause(fn -> wait_for_supervised_main(excluded, attempts - 1) end)
+    end
+  end
+
+  defp supervised_game?(sup, game_pid) when is_pid(sup) and is_pid(game_pid) do
+    supervised_under?(sup, game_pid)
+  end
+
+  defp supervised_under?(sup, pid) when is_pid(sup) and is_pid(pid) do
+    Enum.any?([pid | ancestors(pid)], &child_of?(sup, &1))
+  end
+
+  defp ancestors(pid) do
+    case Process.info(pid, :dictionary) do
+      {:dictionary, dict} ->
+        dict
+        |> Keyword.get(:"$ancestors", [])
+        |> Enum.filter(&is_pid/1)
+
+      _ ->
+        []
     end
   end
 

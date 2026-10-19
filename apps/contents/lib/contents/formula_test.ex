@@ -27,7 +27,9 @@ defmodule Content.FormulaTest do
     ]
   end
 
-  def flow_runner(_room_id), do: Process.whereis(Contents.Scenes.Stack)
+  def flow_runner(room_id), do: Contents.Scenes.Stack.whereis(room_id)
+
+  def scene_stack_spec(room_id), do: Contents.Scenes.Stack.spec(__MODULE__, room_id)
 
   def event_handler(room_id) do
     case Core.RoomRegistry.get_loop(room_id) do

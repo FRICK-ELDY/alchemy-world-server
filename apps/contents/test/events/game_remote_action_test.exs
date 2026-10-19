@@ -9,29 +9,41 @@ defmodule Contents.Events.GameRemoteActionTest do
 
   setup do
     ensure_room_registry!()
+    ensure_scene_registry!()
 
-    case Contents.Events.Game.start_link(room_id: @room_id) do
-      {:ok, pid} ->
-        on_exit(fn ->
-          if Process.alive?(pid), do: GenServer.stop(pid, :normal, 1000)
-        end)
+    stack =
+      case Contents.Scenes.Stack.start_link(
+             content_module: RemoteActionFixture,
+             room_id: @room_id
+           ) do
+        {:ok, pid} -> pid
+        {:error, {:already_started, pid}} -> pid
+      end
 
-        {:ok, pid: pid}
+    pid =
+      case Contents.Events.Game.start_link(room_id: @room_id) do
+        {:ok, pid} -> pid
+        {:error, {:already_started, pid}} -> pid
+      end
 
-      {:error, {:already_started, pid}} ->
-        {:ok, pid: pid}
-    end
+    on_exit(fn ->
+      if Process.alive?(pid), do: GenServer.stop(pid, :normal, 1000)
+      if Process.alive?(stack), do: GenServer.stop(stack, :normal, 1000)
+    end)
+
+    {:ok, pid: pid, stack: stack}
   end
 
   test "リモートの終了と未知メッセージではルームが落ちず、許可された action はシーンを更新する", %{
-    pid: pid
+    pid: pid,
+    stack: stack
   } do
     previous = Application.get_env(:server, :current)
     Application.put_env(:server, :current, RemoteActionFixture)
 
     on_exit(fn ->
       Application.put_env(:server, :current, previous)
-      clear_scene_flags()
+      clear_scene_flags(stack)
     end)
 
     %{frame_count: before_count} = :sys.get_state(pid)
@@ -56,7 +68,7 @@ defmodule Contents.Events.GameRemoteActionTest do
     refute log =~ "rejected ui_action=\"__ping__\""
     assert byte_size(log) < 4_000
 
-    scene = Contents.Scenes.Stack.get_scene_state(:playing)
+    scene = Contents.Scenes.Stack.get_scene_state(stack, :playing)
     assert scene.retry == true
     assert scene.pinged == true
     refute Map.has_key?(scene, :quit_ran)
@@ -66,14 +78,27 @@ defmodule Contents.Events.GameRemoteActionTest do
     assert after_count > before_count
   end
 
-  defp clear_scene_flags do
-    if Process.whereis(Contents.Scenes.Stack) do
-      Contents.Scenes.Stack.update_by_scene_type(:playing, fn state ->
+  defp clear_scene_flags(stack) do
+    if is_pid(stack) and Process.alive?(stack) do
+      Contents.Scenes.Stack.update_by_scene_type(stack, :playing, fn state ->
         state
         |> Map.delete(:retry)
         |> Map.delete(:pinged)
         |> Map.delete(:quit_ran)
       end)
+    end
+  end
+
+  defp ensure_scene_registry! do
+    case Process.whereis(Contents.Scenes.Registry) do
+      nil ->
+        case Registry.start_link(keys: :unique, name: Contents.Scenes.Registry) do
+          {:ok, _pid} -> :ok
+          {:error, {:already_started, _pid}} -> :ok
+        end
+
+      _pid ->
+        :ok
     end
   end
 
