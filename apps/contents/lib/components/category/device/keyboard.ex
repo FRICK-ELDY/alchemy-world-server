@@ -26,33 +26,40 @@ defmodule Contents.Components.Category.Device.Keyboard do
 
   @impl Core.Component
   def on_event({:sprint, value}, context) when is_boolean(value) do
-    Helpers.with_playing_scene(room_id(context), fn state ->
-      Map.put(state, :sprint, value)
+    with_room(context, fn room_id ->
+      Helpers.with_playing_scene(room_id, fn state ->
+        Map.put(state, :sprint, value)
+      end)
     end)
 
     :ok
   end
 
   def on_event({:key_pressed, :escape}, context) do
-    Helpers.with_playing_scene(room_id(context), &toggle_hud_and_cursor/1)
+    with_room(context, fn room_id ->
+      Helpers.with_playing_scene(room_id, &toggle_hud_and_cursor/1)
+    end)
+
     :ok
   end
 
   def on_event({:ui_action, action}, context) when is_binary(action) do
     content = Core.Config.current()
     handlers = get_effective_handlers(content)
-    room_id = room_id(context)
 
     case Map.get(handlers, action) do
       {scene_type, fun} when is_function(fun, 1) ->
-        Helpers.with_scene_type(room_id, scene_type, fun)
+        with_room(context, fn room_id ->
+          Helpers.with_scene_type(room_id, scene_type, fun)
+        end)
+
         :ok
 
       :quit ->
         # 境界は Events.Game の許可リスト（`:quit` と `"__quit__"` は配送しない）。
         # ここは on_event/2 を Game 以外から直接呼んだときの保険。
         Logger.warning(
-          "[Device.Keyboard] ignored :quit handler for #{inspect(action)} room=#{inspect(room_id)}"
+          "[Device.Keyboard] ignored :quit handler for #{inspect(action)} room=#{inspect(Map.get(context, :room_id))}"
         )
 
         :ok
@@ -86,7 +93,13 @@ defmodule Contents.Components.Category.Device.Keyboard do
     Map.put(acc, "__retry__", {content.game_over_scene(), fn s -> Map.put(s, :retry, true) end})
   end
 
-  defp room_id(context), do: Map.get(context, :room_id, :main)
+  # context に room_id が無いとき :main へは書かない。
+  defp with_room(context, fun) do
+    case Map.get(context, :room_id) do
+      nil -> :ok
+      room_id -> fun.(room_id)
+    end
+  end
 
   defp toggle_hud_and_cursor(state) do
     if Map.get(state, :hud_visible, false) do

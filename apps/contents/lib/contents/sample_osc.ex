@@ -29,6 +29,9 @@ defmodule Content.SampleOsc do
   or `mix run --config config/sample_osc.exs`
 
   Render type is `scene_render_type/1` only (`Contents.Behaviour.Content`).
+
+  The UDP port is one listener for the node. Another room keeps its own scene
+  state, and its receiver does not hold a second socket on this port.
   """
 
   @behaviour Contents.Behaviour.Content
@@ -40,7 +43,9 @@ defmodule Content.SampleOsc do
     ]
   end
 
-  def flow_runner(_room_id), do: Process.whereis(Contents.Scenes.Stack)
+  def flow_runner(room_id), do: Contents.Scenes.Stack.whereis(room_id)
+
+  def scene_stack_spec(room_id), do: Contents.Scenes.Stack.spec(__MODULE__, room_id)
 
   def event_handler(room_id) do
     case Core.RoomRegistry.get_loop(room_id) do

@@ -22,7 +22,7 @@ defmodule Server.Application do
       Core.FrameCache,
       {Registry, [keys: :unique, name: Core.RoomRegistry]},
       Core.FormulaStore.LocalBackend,
-      {Contents.Scenes.Stack, [content_module: content]},
+      {Registry, [keys: :unique, name: Contents.Scenes.Registry]},
       Core.EventBus,
       Server.Rooms,
       Core.StressMonitor,

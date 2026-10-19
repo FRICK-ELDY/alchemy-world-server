@@ -31,10 +31,15 @@ defmodule Contents.MenuComponent do
 
   @impl true
   def on_event({:key_pressed, :escape}, context) do
-    room_id = Map.get(context, :room_id, :main)
-    visible = not get_menu_visible(room_id)
-    :ets.insert(@table, {{room_id, :visible}, visible})
-    :ok
+    case Map.get(context, :room_id) do
+      nil ->
+        :ok
+
+      room_id ->
+        visible = not get_menu_visible(room_id)
+        :ets.insert(@table, {{room_id, :visible}, visible})
+        :ok
+    end
   end
 
   def on_event({:ui_action, "__quit__"}, _context) do
@@ -52,8 +57,9 @@ defmodule Contents.MenuComponent do
   room_id のメニュー表示状態を返す。true のときメニュー表示、マウスロックなし。
 
   未初期化時は true（起動時メニュー表示）を返す。
+  `room_id` は省略しない。
   """
-  def get_menu_visible(room_id \\ :main) do
+  def get_menu_visible(room_id) do
     case :ets.lookup(@table, {room_id, :visible}) do
       [{{^room_id, :visible}, v}] -> v
       [] -> true
@@ -67,8 +73,6 @@ defmodule Contents.MenuComponent do
   メニューパネル用の canvas ノードリストを返す。
   """
   def get_menu_ui(room_id, context) do
-    room_id = room_id || :main
-
     fps_text =
       if context.tick_ms > 0,
         do: "FPS: #{round(1000.0 / context.tick_ms)}",

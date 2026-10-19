@@ -231,7 +231,7 @@ defmodule Content.BulletHell3D.Playing do
     hp = Map.get(playing_state, :hp, @max_hp)
     elapsed_sec = Map.get(playing_state, :elapsed_sec, 0.0)
 
-    room_id = Map.get(context, :room_id, :main)
+    room_id = Map.get(context, :room_id)
     runner = content.flow_runner(room_id)
 
     game_over_state =

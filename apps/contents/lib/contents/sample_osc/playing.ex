@@ -17,6 +17,9 @@ defmodule Content.SampleOsc.Playing do
 
   @default_port 10_000
 
+  # テストが空いているポートを渡す。未設定時は LittleOSC の 10000。
+  defp listen_port, do: Application.get_env(:contents, :osc_listen_port, @default_port)
+
   @push_specs [
     %{id: 1, path: "/1/push1", x: -6.0, color: {0.15, 0.40, 0.95, 1.0}},
     %{id: 2, path: "/1/push2", x: -4.0, color: {0.95, 0.85, 0.12, 1.0}},
@@ -79,7 +82,7 @@ defmodule Content.SampleOsc.Playing do
     {:ok, _child} = CreateEmptyChild.create(top_object, name: "Child")
 
     {:ok, receiver} =
-      Receiver.start_link(port: @default_port, access_reason: "LittleOSC Receiver")
+      Receiver.start_link(port: listen_port(), access_reason: "LittleOSC Receiver")
 
     receiver_fields = Receiver.fields(receiver)
 

@@ -36,10 +36,8 @@ defmodule Contents.Behaviour.Content do
   @doc """
   そのルームのシーンスタック（`Contents.Scenes.Stack`）の pid を返す。
 
-  `Process.whereis(Contents.Scenes.Stack)` 使用時は pid() | nil となりうる。
-  nil はシーンスタック未起動等の起動前状態を表し、
-  Phase 3 以降で呼び出し元が nil を適切に扱う必要がある。
-  room_id は将来のマルチルーム対応で使用する予定。
+  `room_id` ごとに別プロセスである。未起動なら `nil`。
+  実装は `Contents.Scenes.Stack.whereis/1` を返す。
   """
   @callback flow_runner(room_id :: term()) :: pid() | nil
 
@@ -127,10 +125,10 @@ defmodule Contents.Behaviour.Content do
   @callback pause_on_push?(scene_type()) :: boolean()
 
   @doc """
-  ルーム用のシーンスタック（`Contents.Scenes.Stack`）の Superviser.child_spec/0 を返す。
+  ルーム用のシーンスタック（`Contents.Scenes.Stack`）の child spec を返す。
 
-  ルーム起動時に content が自分のシーンスタックを起動する際に使用する。
-  room_id はマルチルーム対応用（単一ルーム時は任意の値でよい）。
+  ルームを起動する側が、この spec をそのルームの子として起動する。
+  `room_id` は `Contents.Scenes.Registry` のキーであり、`Contents.Scenes.Stack.whereis/1` で引ける。
   """
   @callback scene_stack_spec(room_id :: term()) :: Supervisor.child_spec()
 
