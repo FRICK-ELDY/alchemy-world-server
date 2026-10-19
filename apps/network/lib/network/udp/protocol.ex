@@ -34,6 +34,22 @@ defmodule Network.UDP.Protocol do
 
   `:frame` パケットのペイロードは zlib で圧縮したフレームバイナリ（protobuf想定）。
   現フェーズでは全フレームデータを送信し、差分計算はフェーズ4以降で実装する。
+
+  ## トランスポート契約
+
+  このモジュールが保証するもの:
+
+  - 固定ヘッダ（`type` + `seq` + payload）のエンコードとデコード
+  - 壊れたバイナリは `{:error, :invalid_packet}`
+  - `:action` の name は #{64} バイト以下
+  - `:frame` の zlib 展開は #{64 * 1024} バイト以下
+
+  保証しないもの（自前の信頼性や QUIC / WebTransport への移行は未決）:
+
+  - 到達。再送しない
+  - 順序。`seq` は送信側の番号であり、受信側は欠番・逆転を見ない
+  - リプレイ防止。同一 `seq` の再送を拒否しない
+  - 断片化。1 データグラムに収まらないペイロードは分割も再構成もしない
   """
 
   @type_join 0x01
@@ -48,6 +64,8 @@ defmodule Network.UDP.Protocol do
 
   # zip bomb 対策: 展開後のフレーム payload 上限
   @max_uncompressed_frame_bytes 64 * 1024
+  # UI アクション名。ゲームループへ無制限のバイナリを渡さない
+  @max_action_name_bytes 64
 
   @type frame_payload :: binary() | RenderFrame.t()
 
@@ -69,8 +87,8 @@ defmodule Network.UDP.Protocol do
   `:join` は 3 要素（token なし）または 4 要素（token 付き）を受け付ける。
   token 付きの場合、payload は `room_id <<0>> token`（NUL 区切り）。
 
-  `:frame` パケットの圧縮に失敗した場合、または payload が binary でない場合は `{:error, term()}` を返す。
-  それ以外のパケット種別は常に `{:ok, binary()}` を返す。
+  `:frame` の圧縮失敗、payload が binary でない場合、`:action` の name が長すぎる場合、
+  `:join` の room_id が不正な場合は `{:error, term()}` を返す。
   """
   @spec encode(packet()) :: {:ok, binary()} | {:error, term()}
   def encode({:join, seq, room_id}), do: encode({:join, seq, room_id, nil})
@@ -101,8 +119,12 @@ defmodule Network.UDP.Protocol do
     {:ok, <<@type_input, seq::32, dx::float-64, dy::float-64>>}
   end
 
-  def encode({:action, seq, name}) do
-    {:ok, <<@type_action, seq::32, name::binary>>}
+  def encode({:action, seq, name}) when is_binary(name) do
+    if byte_size(name) <= @max_action_name_bytes do
+      {:ok, <<@type_action, seq::32, name::binary>>}
+    else
+      {:error, :action_name_too_long}
+    end
   end
 
   def encode({:frame, seq, %RenderFrame{} = render_frame}) do
@@ -161,7 +183,8 @@ defmodule Network.UDP.Protocol do
     {:ok, {:input, seq, dx, dy}}
   end
 
-  def decode(<<@type_action, seq::32, name::binary>>) do
+  def decode(<<@type_action, seq::32, name::binary>>)
+      when byte_size(name) <= @max_action_name_bytes do
     {:ok, {:action, seq, name}}
   end
 

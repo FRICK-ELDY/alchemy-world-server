@@ -37,7 +37,18 @@ config :network, :json_library, Jason
 config :network, Network.UDP,
   port: 4001,
   session_timeout_ms: 30_000,
-  sweep_interval_ms: 5_000
+  sweep_interval_ms: 5_000,
+  max_packet_bytes: 8_192,
+  max_sessions: 1_024,
+  rate_capacity: 30,
+  rate_per_sec: 60,
+  active_n: 64
+
+# ルーム所在の探索結果を保持する時間。不在はキャッシュしない。
+config :network, Network.RoomIndex, ttl_ms: 5_000
+
+# S2S の平文 HTTP。本番は拒否する。dev / test はローカルピアのために許す。
+config :network, :s2s_allow_http, config_env() != :prod
 
 # ── Network.ZenohBridge（Zenoh フレーム配信・入力受信）────────────────
 # true にすると game/room/{room_id}/frame へ publish、
@@ -87,7 +98,7 @@ config :network, Network.S2S,
 #   Content.FormulaTest   — Formula / Nodes 検証（`config/formula_test.exs` 参照）
 #   Content.SampleOsc     — OSC 送受信サンプル（`config/sample_osc.exs` 参照）
 # ローカル開発・動作検証時は上記いずれかに切り替える。本番は config/runtime.exs で設定すること。
-config :server, :current, Content.SampleOsc
+config :server, :current, Content.BulletHell3D
 config :server, :map, :plain
 config :server, :game_events_module, Contents.Events.Game
 config :server, :room_module, Server.Room

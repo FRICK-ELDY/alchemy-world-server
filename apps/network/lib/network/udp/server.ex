@@ -31,16 +31,28 @@ defmodule Network.UDP do
   `AUTH_REQUIRED=true` のとき JOIN に RoomToken（`room_id <<0>> token`）が必須。
   オフ時は従来どおり room_id のみで参加できる（デモ・ローカル互換）。
 
-  ## パケット形式
+  ## パケット形式と契約
 
-  `Network.UDP.Protocol` を参照。
+  形式と、到達・順序・リプレイ・断片化を保証しないことは `Network.UDP.Protocol` を参照。
+  このサーバーが追加で保証するものは入口の上限だけである。
+
+  - 受信データグラムは `max_packet_bytes` を超えたら捨てる（分割しない）
+  - 新規 JOIN は `max_sessions` で打ち切る（既存クライアントの再 JOIN は許す）
+  - `{ip, port}` ごとにトークンバケット（`rate_capacity` / `rate_per_sec`）
+  - レート表は `max_sessions * 2` まで。上限に達した未知の送信元は記録しない
+  - ソケットは `active: N`。`N` 通ごとに `{active, N}` を張り直す
 
   ## 設定
 
       config :network, Network.UDP,
         port: 4001,                 # デフォルト: 4001
         session_timeout_ms: 30_000, # 無通信でセッション除去
-        sweep_interval_ms: 5_000    # 淘汰スイープ間隔
+        sweep_interval_ms: 5_000,   # 淘汰スイープ間隔
+        max_packet_bytes: 8_192,
+        max_sessions: 1_024,
+        rate_capacity: 30,
+        rate_per_sec: 60,
+        active_n: 64
 
   実行時にポートを変更する場合は `config/runtime.exs` で `NETWORK_UDP_PORT` を設定する。
 
@@ -61,6 +73,15 @@ defmodule Network.UDP do
   # 無通信クライアントの除去閾値（アーカイブ改善計画の 30 秒）
   @default_session_timeout_ms 30_000
   @default_sweep_interval_ms 5_000
+  @default_max_packet_bytes 8_192
+  @default_max_sessions 1_024
+  @default_rate_capacity 30
+  @default_rate_per_sec 60
+  @default_active_n 64
+  # 1 データグラムを切り詰めない。超過は受信後に max_packet_bytes で捨てる。
+  @udp_datagram_buffer 65_535
+  # カーネルの受信キュー。1 パケット長に合わせるとバーストを黙って捨てる。
+  @udp_recv_buffer 1_048_576
 
   @type client_key :: {:inet.ip_address(), :inet.port_number()}
   @type session :: %{room_id: String.t(), last_seen_ms: integer()}
@@ -101,6 +122,14 @@ defmodule Network.UDP do
   end
 
   @doc """
+  レート表のエントリ数を返す。上限は `max_sessions * 2`。
+  """
+  @spec rate_entry_count() :: non_neg_integer()
+  def rate_entry_count do
+    GenServer.call(__MODULE__, :rate_entry_count)
+  end
+
+  @doc """
   指定ルームに接続している全クライアントにフレームイベントを送信する。
   `GameEvents` から `{:frame_events, events}` を受け取ったときに呼ばれる想定。
   """
@@ -119,7 +148,19 @@ defmodule Network.UDP do
   def init(port) do
     # reuseaddr: true — テスト時のポート再利用（クラッシュ後の即時再起動）を可能にする。
     # UDP には TCP の TIME_WAIT がないため本番環境でも副作用はない。
-    case :gen_udp.open(port, [:binary, active: true, reuseaddr: true]) do
+    # active: N — 一度に受け取るデータグラム数を限り、処理が追いつくまでカーネルに留める。
+    # buffer はユーザ空間の 1 データグラム上限。max_packet_bytes にすると超過分が
+    # 切り詰められ、短い正当パケットとして decode され得る。
+    # recbuf は SO_RCVBUF。データグラム上限ではない。
+    active_n = active_n()
+
+    case :gen_udp.open(port, [
+           :binary,
+           reuseaddr: true,
+           active: active_n,
+           buffer: @udp_datagram_buffer,
+           recbuf: @udp_recv_buffer
+         ]) do
       {:ok, socket} ->
         actual_port =
           case port do
@@ -143,7 +184,16 @@ defmodule Network.UDP do
 
         Logger.info("[Network.UDP] Listening on UDP port #{actual_port}")
         schedule_sweep()
-        {:ok, %{socket: socket, port: actual_port, sessions: %{}, next_seq: 0}}
+
+        {:ok,
+         %{
+           socket: socket,
+           port: actual_port,
+           sessions: %{},
+           rates: %{},
+           next_seq: 0,
+           active_n: active_n
+         }}
 
       {:error, reason} ->
         {:stop, {:udp_open_failed, reason}}
@@ -159,17 +209,28 @@ defmodule Network.UDP do
     {:reply, Map.to_list(state.sessions), state}
   end
 
+  def handle_call(:rate_entry_count, _from, state) do
+    {:reply, map_size(state.rates), state}
+  end
+
   @impl true
   def handle_cast({:broadcast_frame, room_id, frame_payload}, state) do
     {seq, new_state} = next_seq(state)
 
     case Protocol.encode({:frame, seq, frame_payload}) do
       {:ok, packet} ->
-        state.sessions
-        |> Enum.filter(fn {_key, session} -> session.room_id == room_id end)
-        |> Enum.each(fn {{ip, port}, _session} ->
-          :gen_udp.send(new_state.socket, ip, port, packet)
-        end)
+        if byte_size(packet) > max_packet_bytes() do
+          Logger.error(
+            "[Network.UDP] Frame for room=#{room_id} exceeds max_packet_bytes " <>
+              "(#{byte_size(packet)}). Fragmentation is not provided"
+          )
+        else
+          state.sessions
+          |> Enum.filter(fn {_key, session} -> session.room_id == room_id end)
+          |> Enum.each(fn {{ip, port}, _session} ->
+            :gen_udp.send(new_state.socket, ip, port, packet)
+          end)
+        end
 
       {:error, reason} ->
         Logger.error(
@@ -185,18 +246,37 @@ defmodule Network.UDP do
   @impl true
   def handle_info({:udp, _socket, ip, port, data}, state) do
     client = {ip, port}
+    {decision, state} = take_token(state, client)
 
     new_state =
-      case Protocol.decode(data) do
-        {:ok, packet} ->
-          handle_packet(packet, client, state)
-
-        {:error, :invalid_packet} ->
-          Logger.warning("[Network.UDP] Invalid packet from #{inspect(client)}")
+      cond do
+        decision == :limited ->
           state
+
+        byte_size(data) > max_packet_bytes() ->
+          Logger.debug(
+            "[Network.UDP] Dropping oversized packet bytes=#{byte_size(data)} from #{inspect(client)}"
+          )
+
+          state
+
+        true ->
+          case Protocol.decode(data) do
+            {:ok, packet} ->
+              handle_packet(packet, client, state)
+
+            {:error, :invalid_packet} ->
+              Logger.warning("[Network.UDP] Invalid packet from #{inspect(client)}")
+              state
+          end
       end
 
     {:noreply, new_state}
+  end
+
+  def handle_info({:udp_passive, socket}, state) do
+    :inet.setopts(socket, active: state.active_n)
+    {:noreply, state}
   end
 
   def handle_info(:sweep_sessions, state) do
@@ -294,6 +374,21 @@ defmodule Network.UDP do
   end
 
   defp do_join(seq, room_id, client, state) do
+    if not Map.has_key?(state.sessions, client) and map_size(state.sessions) >= max_sessions() do
+      Logger.warning(
+        "[Network.UDP] JOIN rejected session limit client=#{inspect(client)} room=#{room_id}"
+      )
+
+      {:ok, err_packet} = Protocol.encode({:error, seq, "session_limit"})
+      {ip, port} = client
+      :gen_udp.send(state.socket, ip, port, err_packet)
+      state
+    else
+      register_join(seq, room_id, client, state)
+    end
+  end
+
+  defp register_join(seq, room_id, client, state) do
     case Network.Local.register_room(room_id) do
       :ok ->
         session = %{room_id: room_id, last_seen_ms: now_ms()}
@@ -327,8 +422,8 @@ defmodule Network.UDP do
 
   # ── ユーティリティ ───────────────────────────────────────────────────
 
-  # 単調増加するシーケンス番号を発行する。
-  # 32bit でラップアラウンドし、クライアント側での重複排除・順序保証に使用する。
+  # 単調増加するシーケンス番号を発行する。32bit でラップアラウンドする。
+  # 受信側はこの値を検証しない。到達・順序・リプレイ防止は保証しない。
   defp next_seq(%{next_seq: seq} = state) do
     new_seq = rem(seq + 1, 0x100000000)
     {seq, %{state | next_seq: new_seq}}
@@ -346,6 +441,67 @@ defmodule Network.UDP do
 
   defp sweep_interval_ms do
     Keyword.get(udp_config(), :sweep_interval_ms, @default_sweep_interval_ms)
+  end
+
+  defp max_packet_bytes do
+    Keyword.get(udp_config(), :max_packet_bytes, @default_max_packet_bytes)
+  end
+
+  defp max_sessions do
+    Keyword.get(udp_config(), :max_sessions, @default_max_sessions)
+  end
+
+  defp rate_capacity do
+    Keyword.get(udp_config(), :rate_capacity, @default_rate_capacity)
+  end
+
+  defp rate_per_sec do
+    Keyword.get(udp_config(), :rate_per_sec, @default_rate_per_sec)
+  end
+
+  defp active_n do
+    Keyword.get(udp_config(), :active_n, @default_active_n)
+  end
+
+  # 未知アドレスのレート表がセッション上限の 2 倍に達したら、新規キーは作らない。
+  # 判定はトークン補充より前。初期トークンは capacity なので、後段だと新規が必ず入る。
+  defp max_rate_entries do
+    max(max_sessions() * 2, 1)
+  end
+
+  defp take_token(state, client) do
+    now = now_ms()
+    state = evict_stale_rates_if_full(state, client, now)
+
+    if not Map.has_key?(state.rates, client) and map_size(state.rates) >= max_rate_entries() do
+      {:limited, state}
+    else
+      charge_token(state, client, now)
+    end
+  end
+
+  defp evict_stale_rates_if_full(state, client, now) do
+    if Map.has_key?(state.rates, client) or map_size(state.rates) < max_rate_entries() do
+      state
+    else
+      %{state | rates: sweep_rates(state.rates, now, session_timeout_ms())}
+    end
+  end
+
+  defp charge_token(state, client, now) do
+    cap = rate_capacity() * 1.0
+    per_ms = rate_per_sec() / 1000
+    {tokens, last} = Map.get(state.rates, client, {cap, now})
+    elapsed = max(now - last, 0)
+    tokens = min(cap, tokens + elapsed * per_ms)
+
+    if tokens >= 1.0 do
+      rates = Map.put(state.rates, client, {tokens - 1.0, now})
+      {:allow, %{state | rates: rates}}
+    else
+      rates = Map.put(state.rates, client, {tokens, now})
+      {:limited, %{state | rates: rates}}
+    end
   end
 
   defp schedule_sweep do
@@ -377,6 +533,12 @@ defmodule Network.UDP do
       )
     end)
 
-    %{state | sessions: Map.new(kept)}
+    %{state | sessions: Map.new(kept), rates: sweep_rates(state.rates, now, timeout)}
+  end
+
+  defp sweep_rates(rates, now, timeout) do
+    Map.filter(rates, fn {_client, {_tokens, last}} ->
+      now - last <= timeout
+    end)
   end
 end
