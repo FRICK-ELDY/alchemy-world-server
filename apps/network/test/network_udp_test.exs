@@ -111,6 +111,20 @@ defmodule Network.UDPTest do
       assert {:ok, ^packet} = Protocol.decode(bin)
     end
 
+    test ":action の name が 64 バイトを超えると拒否する" do
+      name = String.duplicate("a", 65)
+      assert {:error, :action_name_too_long} = Protocol.encode({:action, 1, name})
+
+      assert {:error, :invalid_packet} =
+               Protocol.decode(<<0x05, 1::32, name::binary>>)
+    end
+
+    test "同一 seq は重複として捨てない" do
+      assert {:ok, bin} = Protocol.encode({:ping, 7})
+      assert {:ok, {:ping, 7}} = Protocol.decode(bin)
+      assert {:ok, {:ping, 7}} = Protocol.decode(bin)
+    end
+
     test ":frame パケットをエンコード・デコードできる" do
       frame_payload = <<0x08, 0x96, 0x01, 0x12, 0x03, "abc">>
       packet = {:frame, 6, frame_payload}
@@ -564,6 +578,134 @@ defmodule Network.UDPTest do
     end
   end
 
+  describe "入口上限" do
+    test "max_packet_bytes を超えるデータグラムは捨て、短い PING は通る", %{
+      server_port: server_port
+    } do
+      prev = Application.get_env(:network, Network.UDP, [])
+      Application.put_env(:network, Network.UDP, Keyword.merge(prev, max_packet_bytes: 4))
+      on_exit(fn -> Application.put_env(:network, Network.UDP, prev) end)
+
+      sock = open_client()
+      on_exit(fn -> close_client(sock) end)
+
+      :ok = send_packet(sock, server_port, Protocol.encode({:ping, 1}))
+      assert {:error, :timeout} = recv_packet(sock, 200)
+
+      Application.put_env(:network, Network.UDP, prev)
+      :ok = send_packet(sock, server_port, Protocol.encode({:ping, 2}))
+      assert {:ok, {:pong, 2, _ts}} = recv_packet(sock, 500)
+    end
+
+    test "セッション数が max_sessions に達すると新規 JOIN を拒否する" do
+      prev = Application.get_env(:network, Network.UDP, [])
+
+      on_exit(fn ->
+        Application.put_env(:network, Network.UDP, prev)
+        restart_udp()
+      end)
+
+      Application.put_env(:network, Network.UDP, Keyword.merge(prev, max_sessions: 1, port: 0))
+      restart_udp()
+      server_port = Network.UDP.port()
+
+      sock_a = open_client()
+      sock_b = open_client()
+
+      on_exit(fn ->
+        close_client(sock_a)
+        close_client(sock_b)
+      end)
+
+      room_a = "udp_cap_a_#{System.unique_integer([:positive])}"
+      room_b = "udp_cap_b_#{System.unique_integer([:positive])}"
+
+      :ok = send_packet(sock_a, server_port, Protocol.encode({:join, 1, room_a}))
+      assert {:ok, {:join_ack, 1, _}} = recv_packet(sock_a)
+
+      :ok = send_packet(sock_b, server_port, Protocol.encode({:join, 2, room_b}))
+      assert {:ok, {:error, 2, "session_limit"}} = recv_packet(sock_b)
+    end
+
+    test "{ip, port} のトークンバケットを超えるとパケットを捨てる", %{server_port: server_port} do
+      prev = Application.get_env(:network, Network.UDP, [])
+
+      Application.put_env(
+        :network,
+        Network.UDP,
+        Keyword.merge(prev, rate_capacity: 1, rate_per_sec: 0)
+      )
+
+      on_exit(fn -> Application.put_env(:network, Network.UDP, prev) end)
+
+      sock = open_client()
+      on_exit(fn -> close_client(sock) end)
+
+      :ok = send_packet(sock, server_port, Protocol.encode({:ping, 1}))
+      assert {:ok, {:pong, 1, _ts}} = recv_packet(sock, 500)
+
+      :ok = send_packet(sock, server_port, Protocol.encode({:ping, 2}))
+      assert {:error, :timeout} = recv_packet(sock, 200)
+    end
+
+    test "レート表が上限のとき未知の送信元はエントリを増やさない" do
+      prev = Application.get_env(:network, Network.UDP, [])
+
+      on_exit(fn ->
+        Application.put_env(:network, Network.UDP, prev)
+        restart_udp()
+      end)
+
+      # max_sessions: 1 だとレート表の上限は 2。
+      Application.put_env(:network, Network.UDP, Keyword.merge(prev, max_sessions: 1, port: 0))
+      restart_udp()
+      server_port = Network.UDP.port()
+
+      sock_a = open_client()
+      sock_b = open_client()
+      sock_c = open_client()
+
+      on_exit(fn ->
+        close_client(sock_a)
+        close_client(sock_b)
+        close_client(sock_c)
+      end)
+
+      :ok = send_packet(sock_a, server_port, Protocol.encode({:ping, 1}))
+      assert {:ok, {:pong, 1, _ts}} = recv_packet(sock_a, 500)
+
+      :ok = send_packet(sock_b, server_port, Protocol.encode({:ping, 2}))
+      assert {:ok, {:pong, 2, _ts}} = recv_packet(sock_b, 500)
+      assert Network.UDP.rate_entry_count() == 2
+
+      :ok = send_packet(sock_c, server_port, Protocol.encode({:ping, 3}))
+      assert {:error, :timeout} = recv_packet(sock_c, 200)
+      assert Network.UDP.rate_entry_count() == 2
+    end
+
+    test "active: N のあと受信を再開する" do
+      prev = Application.get_env(:network, Network.UDP, [])
+
+      on_exit(fn ->
+        Application.put_env(:network, Network.UDP, prev)
+        restart_udp()
+      end)
+
+      Application.put_env(:network, Network.UDP, Keyword.merge(prev, active_n: 1, port: 0))
+      restart_udp()
+      server_port = Network.UDP.port()
+
+      sock = open_client()
+      on_exit(fn -> close_client(sock) end)
+
+      :ok = send_packet(sock, server_port, Protocol.encode({:ping, 1}))
+      assert {:ok, {:pong, 1, _ts}} = recv_packet(sock, 500)
+
+      :ok = send_packet(sock, server_port, Protocol.encode({:ping, 2}))
+      assert {:ok, {:pong, 2, _ts}} = recv_packet(sock, 500)
+    end
+  end
+
   describe "不正パケット耐性" do
     test "不正なバイナリを送ってもサーバーがクラッシュしない", %{server_port: server_port} do
       sock = open_client()
@@ -575,5 +717,10 @@ defmodule Network.UDPTest do
       :ok = send_packet(sock, server_port, Protocol.encode({:ping, 99}))
       assert {:ok, {:pong, 99, _ts}} = recv_packet(sock, 500)
     end
+  end
+
+  defp restart_udp do
+    :ok = Supervisor.terminate_child(Network.Supervisor, Network.UDP)
+    {:ok, _pid} = Supervisor.restart_child(Network.Supervisor, Network.UDP)
   end
 end

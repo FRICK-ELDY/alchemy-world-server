@@ -129,6 +129,28 @@ defmodule Network.S2STest do
       assert [%{"id" => "remote"}] = body["worlds"]
     end
 
+    test "平文 HTTP は s2s_allow_http が false のとき取得しない" do
+      prev = Application.get_env(:network, :s2s_allow_http)
+      Application.put_env(:network, :s2s_allow_http, false)
+      on_exit(fn -> Application.put_env(:network, :s2s_allow_http, prev) end)
+
+      get_fun = fn _url, _token ->
+        flunk("http fetch must not run")
+      end
+
+      assert {:error, :https_required} =
+               Client.fetch_worlds("http://peer.test", audience: @peer_domain, get_fun: get_fun)
+
+      assert {:ok, %{"worlds" => []}} =
+               Client.fetch_worlds("HTTPS://peer.test",
+                 audience: @peer_domain,
+                 get_fun: fn
+                   _url, nil -> {:ok, %{"domain" => @peer_domain}}
+                   _url, token when is_binary(token) -> {:ok, %{"worlds" => []}}
+                 end
+               )
+    end
+
     test "iss が HTTP URL でも未設定ピアなら fetch せず拒否する（SSRF）" do
       fetch_count = :counters.new(1, [])
 

@@ -7,6 +7,7 @@ defmodule Network.Application do
     戦略は `:one_for_one` のため、Cluster がクラッシュしても他プロセスには影響しない。
   - `Network.PubSub` — Phoenix.PubSub（ルーム間ブロードキャスト）
   - `Network.Local` — ローカルマルチルーム管理 GenServer
+  - `Network.RoomIndex` — クラスタ上のルーム所在キャッシュ
   - `Network.AuthVerifier` — alchemy-auth JWKS による Bearer JWT 検証（`AUTH_REQUIRED` 時に room_token で使用）
   - `Network.S2S.Instance` — 連合 read-only S2S（インスタンス自己記述・署名鍵）
   - `Network.Endpoint` — Phoenix Endpoint（WebSocket + HTTP）
@@ -52,6 +53,7 @@ defmodule Network.Application do
         {Cluster.Supervisor, [topologies, [name: Network.ClusterSupervisor]]},
         {Phoenix.PubSub, name: Network.PubSub},
         Network.Local,
+        Network.RoomIndex,
         Network.AuthVerifier,
         Network.S2S.Instance,
         Network.Endpoint,
